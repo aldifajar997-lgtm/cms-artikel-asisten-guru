@@ -34,24 +34,30 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   const sort = c.req.query('sort')
   const authorIdParam = c.req.query('author_id')
 
+  // Batasi input pencarian maksimal 50 karakter untuk mencegah Cache Key Poisoning
+  const safeSearchQueryRaw = searchQuery ? searchQuery.substring(0, 50) : null;
+
   // Normalisasi Cache Key untuk mencegah Cache Key Poisoning (Storage Exhaustion Attack)
-  const cacheKey = `cache:posts_list:${limit}:${offset}:${categoryId || 'any'}:${authorIdParam || 'any'}:${sort || 'newest'}:${searchQuery || 'none'}:${cursor || 'none'}`
+  const cacheKey = `cache:posts_list:${limit}:${offset}:${categoryId || 'any'}:${authorIdParam || 'any'}:${sort || 'newest'}:${safeSearchQueryRaw || 'none'}:${cursor || 'none'}`
   
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
     return c.json(cachedData)
   }
 
-  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.seo_score, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at FROM posts p"
+  // Hapus p.seo_score untuk mencegah kebocoran strategi SEO ke publik
+  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at FROM posts p"
   let whereClauses = ["p.status = 'published'"]
   const params: any[] = []
 
-  if (searchQuery) {
-    baseQuery += " JOIN posts_search ps ON p.id = ps.id"
-    whereClauses.push("posts_search MATCH ?")
+  if (safeSearchQueryRaw) {
     // Sanitasi FTS5 untuk menghindari error query syntax
-    const safeQuery = searchQuery.replace(/[^a-zA-Z0-9 ]/g, '').trim()
-    params.push(safeQuery ? `"${safeQuery}"*` : '')
+    const safeQuery = safeSearchQueryRaw.replace(/[^a-zA-Z0-9 ]/g, '').trim()
+    if (safeQuery.length > 0) {
+      baseQuery += " JOIN posts_search ps ON p.id = ps.id"
+      whereClauses.push("posts_search MATCH ?")
+      params.push(`"${safeQuery}"*`)
+    }
   }
 
   if (categoryId) {
@@ -115,20 +121,15 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
     return c.json(cachedData)
   }
 
+  // Hapus focus_keyword, secondary_keywords, seo_score, word_count dari hasil query ke publik
   const post = await c.env.DB.prepare(
-    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, word_count, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE slug = ? AND status = 'published'"
+    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE slug = ? AND status = 'published'"
   ).bind(slug).first()
 
   if (!post) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
 
-  let parsedSecondary = []
-  if (post.secondary_keywords) {
-    try { parsedSecondary = JSON.parse(post.secondary_keywords as string) } catch {}
-  }
-
   const formatted = {
     ...post,
-    secondary_keywords: parsedSecondary,
     published_at: post.published_at || null,
     created_at: post.created_at || null,
     updated_at: post.updated_at || null
