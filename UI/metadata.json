@@ -1,0 +1,6 @@
+{
+  "name": "SEO Writer Studio",
+  "description": "Aplikasi worker SEO minimalis untuk pembuatan artikel fokus tinggi, pengelolaan daftar artikel, kategori, dan profil penulis dengan aksen hijau tosca.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,23 @@
+# File ini adalah CONTOH. Copy ke .dev.vars untuk digunakan lokal.
+# File .dev.vars tidak akan ke-commit ke git (sudah di .gitignore).
+
+# JWT Secret — gunakan string random panjang (min 32 karakter)
+JWT_SECRET=ganti-dengan-secret-random-yang-kuat-minimal-32-karakter
+
+# Super Admin Fallback (opsional)
+# SUPER_ADMIN_EMAIL = email super admin
+# SUPER_ADMIN_PASSWORD_HASH = hasil hash bcrypt dari password
+#
+# Cara generate hash:
+#   node -e "const b=require('bcryptjs');b.hash('password_anda',10).then(h=>console.log(h))"
+#
+SUPER_ADMIN_EMAIL=admin@example.com
+SUPER_ADMIN_PASSWORD_HASH=$2a$10$contoh.hash.bcrypt.ganti.dengan.yang.asli
+
+# URL Frontend untuk keperluan SEO (Sitemap & Robots.txt)
+FRONTEND_URL=http://localhost:3000
+
+# Daftar origin yang diizinkan untuk CORS (pisahkan dengan koma, tanpa spasi)
+# Production: https://asisten-guru.id,https://www.asisten-guru.id
+# Local dev: http://localhost:3000
+ALLOWED_ORIGINS=http://localhost:3000

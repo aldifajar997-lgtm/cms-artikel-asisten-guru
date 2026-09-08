@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cms3",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-03",
+  // PENTING: Secret TIDAK boleh disimpan di file ini (bisa ke-commit ke git).
+  // Untuk production: gunakan `wrangler secret put <NAMA_SECRET>`
+  //   wrangler secret put JWT_SECRET
+  //   wrangler secret put SUPER_ADMIN_EMAIL
+  //   wrangler secret put SUPER_ADMIN_PASSWORD_HASH
+  //
+  // Untuk local dev: buat file .dev.vars (sudah di-.gitignore)
+  //   Lihat .dev.vars.example untuk format
+  "routes": [
+    {
+      "pattern": "cms.asisten-guru.my.id",
+      "zone_name": "asisten-guru.my.id",
+      "custom_domain": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "f9a36db70bd24b9ba4a287d8ece5a020",
+      "preview_id": "b6f3827c16ff4b6b93db59135e9bf6f5"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "cms-media-bucket"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cms-db",
+      "database_id": "a2d327e3-fb36-47e5-b08b-acc78c9f0041"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://asisten-guru.id,https://www.asisten-guru.id,https://admin.asisten-guru.my.id"
+  }
+}

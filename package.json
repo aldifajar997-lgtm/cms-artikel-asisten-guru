@@ -1,0 +1,23 @@
+{
+  "name": "CMS3",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "bcryptjs": "^3.0.3",
+    "hono": "^4.13.5",
+    "isomorphic-dompurify": "^4.1.0",
+    "xss": "^1.0.15",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.110.0"
+  }
+}
