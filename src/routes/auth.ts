@@ -5,6 +5,7 @@ import { Bindings, Variables } from '../types'
 import { rateLimit } from '../middlewares/rate-limit'
 import { comparePassword, hashPassword, hashToken } from '../utils/hash'
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt'
+import { verifyTurnstile } from '../utils/turnstile'
 import { HTTPException } from 'hono/http-exception'
 import { authMiddleware } from '../middlewares/auth'
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
@@ -14,11 +15,27 @@ const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 const loginSchema = z.object({
   email: z.string().email('Format email tidak valid'),
-  password: z.string().min(1, 'Password tidak boleh kosong')
+  password: z.string().min(1, 'Password tidak boleh kosong'),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
 })
 
 auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), async (c) => {
-  const { email, password } = c.req.valid('json')
+  const { email, password, 'cf-turnstile-response': turnstileToken } = c.req.valid('json')
+
+  if (!c.env.TURNSTILE_SECRET || !c.env.TURNSTILE_HOSTNAMES) {
+    throw new HTTPException(500, { message: 'Konfigurasi keamanan sistem belum lengkap. Hubungi administrator.' })
+  }
+
+  const isValidTurnstile = await verifyTurnstile(
+    turnstileToken,
+    c.env.TURNSTILE_SECRET,
+    'login',
+    c.env.TURNSTILE_HOSTNAMES,
+    c.req.header('CF-Connecting-IP')
+  )
+  if (!isValidTurnstile) {
+    throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
+  }
 
   // --- SUPER ADMIN FALLBACK (via env, password sudah di-hash) ---
   if (c.env.SUPER_ADMIN_EMAIL && c.env.SUPER_ADMIN_PASSWORD_HASH) {
@@ -294,11 +311,27 @@ auth.post('/logout', authMiddleware, async (c) => {
 })
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email('Format email tidak valid')
+  email: z.string().email('Format email tidak valid'),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
 })
 
 auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json', forgotPasswordSchema), async (c) => {
-  const { email } = c.req.valid('json')
+  const { email, 'cf-turnstile-response': turnstileToken } = c.req.valid('json')
+
+  if (!c.env.TURNSTILE_SECRET || !c.env.TURNSTILE_HOSTNAMES) {
+    throw new HTTPException(500, { message: 'Konfigurasi keamanan sistem belum lengkap. Hubungi administrator.' })
+  }
+
+  const isValidTurnstile = await verifyTurnstile(
+    turnstileToken,
+    c.env.TURNSTILE_SECRET,
+    'forgot_password',
+    c.env.TURNSTILE_HOSTNAMES,
+    c.req.header('CF-Connecting-IP')
+  )
+  if (!isValidTurnstile) {
+    throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
+  }
 
   const user = await c.env.DB.prepare(
     'SELECT id, name, email, is_active FROM users WHERE email = ?'
@@ -357,11 +390,27 @@ auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json'
 
 const resetPasswordSchema = z.object({
   token: z.string(),
-  new_password: z.string().min(6, 'Password minimal 6 karakter')
+  new_password: z.string().min(6, 'Password minimal 6 karakter'),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
 })
 
 auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', resetPasswordSchema), async (c) => {
-  const { token, new_password } = c.req.valid('json')
+  const { token, new_password, 'cf-turnstile-response': turnstileToken } = c.req.valid('json')
+
+  if (!c.env.TURNSTILE_SECRET || !c.env.TURNSTILE_HOSTNAMES) {
+    throw new HTTPException(500, { message: 'Konfigurasi keamanan sistem belum lengkap. Hubungi administrator.' })
+  }
+
+  const isValidTurnstile = await verifyTurnstile(
+    turnstileToken,
+    c.env.TURNSTILE_SECRET,
+    'reset_password',
+    c.env.TURNSTILE_HOSTNAMES,
+    c.req.header('CF-Connecting-IP')
+  )
+  if (!isValidTurnstile) {
+    throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
+  }
 
   const resetRecord = await c.env.DB.prepare(
     'SELECT user_id FROM password_resets WHERE token = ? AND expires_at > datetime("now")'

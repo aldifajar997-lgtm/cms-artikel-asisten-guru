@@ -8,6 +8,8 @@ export type Bindings = {
   FRONTEND_URL?: string
   BREVO_API_KEY?: string
   ALLOWED_ORIGINS?: string // Daftar origin yang diizinkan, dipisah koma
+  TURNSTILE_SECRET?: string
+  TURNSTILE_HOSTNAMES?: string
 }
 
 export interface JWTPayload {

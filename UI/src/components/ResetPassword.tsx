@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Eye, EyeOff, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import api, { handleApiError } from '../utils/api';
+import { TurnstileWidget } from './TurnstileWidget';
 
 interface ResetPasswordProps {
   token: string;
@@ -29,13 +30,29 @@ export function ResetPassword({ token, onSuccessRedirect }: ResetPasswordProps) 
     setError(null);
 
     try {
-      await api.post('/auth/reset-password', { token, new_password: password });
+      const turnstileTokenElement = (e.target as HTMLFormElement).elements.namedItem('cf-turnstile-response') as HTMLInputElement | null;
+      const turnstileToken = turnstileTokenElement ? turnstileTokenElement.value : '';
+
+      if (!turnstileToken) {
+        setError("Silakan selesaikan verifikasi keamanan (CAPTCHA) terlebih dahulu.");
+        setIsLoading(false);
+        return;
+      }
+
+      await api.post('/auth/reset-password', { 
+        token, 
+        new_password: password,
+        'cf-turnstile-response': turnstileToken
+      });
       setSuccess(true);
       setTimeout(() => {
         onSuccessRedirect();
       }, 3000); // Redirect after 3 seconds
     } catch (err) {
       setError(handleApiError(err));
+      if (window.turnstile) {
+        window.turnstile.reset();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -139,6 +156,8 @@ export function ResetPassword({ token, onSuccessRedirect }: ResetPasswordProps) 
                   </button>
                 </div>
               </div>
+
+              <TurnstileWidget action="reset_password" />
 
               <motion.button
                 whileHover={{ scale: 1.01 }}

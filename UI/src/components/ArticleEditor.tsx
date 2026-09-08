@@ -66,16 +66,16 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
   setHasUnsavedChanges,
 }) => {
   // Form states
-  const [title, setTitle] = useState(article.title);
-  const [slug, setSlug] = useState(article.slug);
-  const [content, setContent] = useState(article.content);
+  const [title, setTitle] = useState(article.title || '');
+  const [slug, setSlug] = useState(article.slug || '');
+  const [content, setContent] = useState(article.content || '');
   const [categoryId, setCategoryId] = useState(article.categoryId || categories[0]?.id || '');
-  const [focusKeyword, setFocusKeyword] = useState(article.focusKeyword);
+  const [focusKeyword, setFocusKeyword] = useState(article.focusKeyword || '');
   const [secondaryKeywords, setSecondaryKeywords] = useState<string[]>(article.secondaryKeywords || []);
   const [newSecondaryKeyword, setNewSecondaryKeyword] = useState('');
-  const [metaTitle, setMetaTitle] = useState(article.metaTitle || article.title);
+  const [metaTitle, setMetaTitle] = useState(article.metaTitle || article.title || '');
   const [metaDescription, setMetaDescription] = useState(article.metaDescription || '');
-  const [status, setStatus] = useState<ArticleStatus>(article.status);
+  const [status, setStatus] = useState<ArticleStatus>(article.status || 'draft');
   const [featuredImage, setFeaturedImage] = useState(article.featuredImage || '');
   const [featuredImageAlt, setFeaturedImageAlt] = useState(article.featuredImageAlt || '');
   const [featuredImageCaption, setFeaturedImageCaption] = useState(article.featuredImageCaption || '');
@@ -207,10 +207,10 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
     setSecondaryKeywords(secondaryKeywords.filter((kw) => kw !== kwToRemove));
   };
 
-  const triggerSave = async (targetStatus: ArticleStatus = status) => {
+  const triggerSave = async (targetStatus: ArticleStatus = status): Promise<Article | null> => {
     if (!title.trim()) {
       alert('Judul artikel wajib diisi!');
-      return;
+      return null;
     }
 
     let finalSlug = slug.trim();
@@ -228,7 +228,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
       title,
       slug: finalSlug,
       content,
-      excerpt: metaDescription || content.slice(0, 160),
+      excerpt: metaDescription || excerptFallback(content),
       categoryId,
       focusKeyword,
       secondaryKeywords,
@@ -252,8 +252,10 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
         targetStatus === 'published' ? 'Artikel berhasil dipublikasikan!' : 'Draft berhasil disimpan!'
       );
       setTimeout(() => setShowNotification(null), 3000);
+      return updatedArticle;
     } catch (err) {
       setStatus(prevStatus); // revert if failed
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -336,8 +338,8 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
 
           {/* Preview Button */}
           <button
-            onClick={() =>
-              onPreview({
+            onClick={async () => {
+              let artToPreview: Article = {
                 ...article,
                 title,
                 slug,
@@ -354,8 +356,18 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                 featuredImage,
                 featuredImageAlt,
                 featuredImageCaption,
-              })
-            }
+              };
+
+              if (hasUnsavedChanges || article.id.startsWith('art-')) {
+                const saved = await triggerSave(status);
+                if (saved) {
+                  artToPreview = saved;
+                } else {
+                  return; // If save failed (e.g. no title), don't proceed to preview
+                }
+              }
+              onPreview(artToPreview);
+            }}
             className="hidden sm:inline-flex px-3.5 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer"
             title="Pratinjau tampilan artikel"
           >
@@ -851,14 +863,16 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
 // Helper: Count string occurrences (Strip HTML first)
 function countOccurrences(text: string, phrase: string): number {
   if (!phrase || !text) return 0;
-  const cleanText = text.replace(/<[^>]*>?/gm, ' ');
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const cleanText = text.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
+  const cleanPhrase = phrase.trim().replace(/\s+/g, ' ');
+  const escaped = cleanPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const matches = cleanText.match(new RegExp(`\\b${escaped}\\b`, 'gi'));
   return matches ? matches.length : 0;
 }
 
 // Helper: Excerpt fallback (Strip HTML first)
 function excerptFallback(content: string): string {
+  if (!content) return '';
   const clean = content.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
   return clean.slice(0, 150);
 }

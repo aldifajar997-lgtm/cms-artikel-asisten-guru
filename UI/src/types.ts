@@ -15,13 +15,14 @@ export interface Article {
   seoScore: number;
   wordCount: number;
   readingTimeMinutes: number;
+  viewCount: number;
+  authorName?: string;
   createdAt: string;
   updatedAt: string;
   featuredImage?: string;
   featuredImageAlt?: string;
   featuredImageCaption?: string;
   tagIds?: string[];
-  authorName?: string;
 }
 
 export interface Tag {
@@ -54,6 +55,11 @@ export interface UserProfile {
   monthlyArticleGoal: number;
   monthlyWordGoal: number;
   portfolioUrl: string;
+  socialLinkedin?: string;
+  socialTwitter?: string;
+  socialInstagram?: string;
+  socialFacebook?: string;
+  socialTiktok?: string;
 }
 
 export interface SEOCheckItem {
@@ -90,9 +96,16 @@ export interface Role {
   description: string;
 }
 
+export interface ArticleFilters {
+  status?: ArticleStatus | 'all';
+  categoryId?: string | 'all';
+  sort?: 'newest' | 'oldest' | 'score' | 'words' | 'popular';
+}
+
 export interface ArticleStats {
   totalArticles: number;
   totalWords: number;
+  totalViews: number;
   avgScore: number;
   publishedCount: number;
   draftCount: number;

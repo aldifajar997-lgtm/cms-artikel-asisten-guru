@@ -179,7 +179,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           >
             <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-teal-500/20">
               <img
-                src={profile.avatarUrl}
+                src={profile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=0d9488&color=fff`}
                 alt={profile.name}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"

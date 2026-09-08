@@ -23,7 +23,8 @@ users.get('/author/:id', rateLimit(500, 60, 'public_author'), async (c) => {
   
   // Hanya menyeleksi field yang aman untuk publik, dan memastikan user aktif
   const author = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.avatar_url, u.bio, u.portfolio_url, u.primary_niche
+    SELECT u.id, u.name, u.avatar_url, u.bio, u.portfolio_url, u.primary_niche,
+           u.social_linkedin, u.social_twitter, u.social_instagram, u.social_facebook, u.social_tiktok
     FROM users u
     WHERE u.id = ? AND u.is_active = 1
   `).bind(targetId).first()
@@ -46,7 +47,8 @@ users.get('/me', async (c) => {
   const dbUser = await c.env.DB.prepare(`
     SELECT u.id, u.email, u.name, u.avatar_url, u.is_active, u.created_at, r.name as role,
            u.bio, u.portfolio_url, u.target_min_words, u.target_keyword_density, 
-           u.preferred_tone, u.main_language, u.monthly_article_goal, u.monthly_word_goal, u.primary_niche
+           u.preferred_tone, u.main_language, u.monthly_article_goal, u.monthly_word_goal, u.primary_niche,
+           u.social_linkedin, u.social_twitter, u.social_instagram, u.social_facebook, u.social_tiktok
     FROM users u
     LEFT JOIN user_roles ur ON u.id = ur.user_id
     LEFT JOIN roles r ON ur.role_id = r.id
@@ -61,24 +63,38 @@ users.get('/me', async (c) => {
   }
 
   if (user.role === 'super_admin') {
-    return c.json({ id: 'super_admin', email: user.email, name: 'Super Admin', role: 'super_admin' })
+    return c.json({
+      id: 'super_admin', email: user.email, name: 'Super Admin', role: 'super_admin',
+      avatar_url: null, bio: null, portfolio_url: null, primary_niche: null,
+      target_min_words: null, target_keyword_density: null,
+      preferred_tone: null, main_language: null,
+      monthly_article_goal: null, monthly_word_goal: null,
+      social_linkedin: null, social_twitter: null, social_instagram: null,
+      social_facebook: null, social_tiktok: null,
+      is_active: 1, created_at: new Date().toISOString()
+    })
   }
   
   throw new HTTPException(404, { message: 'User tidak ditemukan' })
 })
 
 const updateMeSchema = z.object({
-  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v),
-  avatar_url: z.string().url().or(z.literal('')).optional(),
-  bio: z.string().max(500, 'Bio maksimal 500 karakter').optional().transform(v => v ? cleanText(v) : v),
-  portfolioUrl: z.string().url().or(z.literal('')).optional(),
-  targetMinWords: z.number().min(0).optional(),
-  targetKeywordDensity: z.number().min(0).max(10).optional(),
-  preferredTone: z.string().max(100).optional().transform(v => v ? cleanText(v) : v),
-  mainLanguage: z.string().max(50).optional().transform(v => v ? cleanText(v) : v),
-  monthlyArticleGoal: z.number().min(0).optional(),
-  monthlyWordGoal: z.number().min(0).optional(),
-  primaryNiche: z.string().max(100).optional().transform(v => v ? cleanText(v) : v)
+  name: z.string().max(100).nullable().optional().transform(v => v ? cleanText(v) : v),
+  avatar_url: z.string().nullable().optional(),
+  bio: z.string().max(500, 'Bio maksimal 500 karakter').nullable().optional().transform(v => v ? cleanText(v) : v),
+  portfolioUrl: z.string().nullable().optional(),
+  targetMinWords: z.number().min(0).nullable().optional(),
+  targetKeywordDensity: z.number().min(0).max(10).nullable().optional(),
+  preferredTone: z.string().max(100).nullable().optional().transform(v => v ? cleanText(v) : v),
+  mainLanguage: z.string().max(50).nullable().optional().transform(v => v ? cleanText(v) : v),
+  monthlyArticleGoal: z.number().min(0).nullable().optional(),
+  monthlyWordGoal: z.number().min(0).nullable().optional(),
+  primaryNiche: z.string().max(100).nullable().optional().transform(v => v ? cleanText(v) : v),
+  socialLinkedin: z.union([z.string().max(100, 'Username LinkedIn terlalu panjang').transform(v => cleanText(v.replace(/^@/, ''))), z.literal('')]).nullable().optional().transform(v => v === '' ? null : v),
+  socialTwitter: z.union([z.string().max(100, 'Username Twitter terlalu panjang').transform(v => cleanText(v.replace(/^@/, ''))), z.literal('')]).nullable().optional().transform(v => v === '' ? null : v),
+  socialInstagram: z.union([z.string().max(100, 'Username Instagram terlalu panjang').transform(v => cleanText(v.replace(/^@/, ''))), z.literal('')]).nullable().optional().transform(v => v === '' ? null : v),
+  socialFacebook: z.union([z.string().max(100, 'Username Facebook terlalu panjang').transform(v => cleanText(v.replace(/^@/, ''))), z.literal('')]).nullable().optional().transform(v => v === '' ? null : v),
+  socialTiktok: z.union([z.string().max(100, 'Username TikTok terlalu panjang').transform(v => cleanText(v.replace(/^@/, ''))), z.literal('')]).nullable().optional().transform(v => v === '' ? null : v)
 })
 
 users.put('/me', rateLimit(10, 60, 'update_me'), zValidator('json', updateMeSchema), async (c) => {
@@ -86,13 +102,15 @@ users.put('/me', rateLimit(10, 60, 'update_me'), zValidator('json', updateMeSche
 
   const { 
     name, avatar_url, bio, portfolioUrl, targetMinWords, targetKeywordDensity, 
-    preferredTone, mainLanguage, monthlyArticleGoal, monthlyWordGoal, primaryNiche
+    preferredTone, mainLanguage, monthlyArticleGoal, monthlyWordGoal, primaryNiche,
+    socialLinkedin, socialTwitter, socialInstagram, socialFacebook, socialTiktok
   } = c.req.valid('json')
   
   // Allow clearing avatar_url or name by transforming empty string to null
   const finalName = name === '' || name === undefined ? null : name;
   const finalAvatar = avatar_url === '' || avatar_url === undefined ? null : avatar_url;
   const finalPortfolio = portfolioUrl === '' || portfolioUrl === undefined ? null : portfolioUrl;
+  const finalBio = bio === '' || bio === undefined ? null : bio;
 
   // Cek apakah ada avatar lama yang dihapus/diganti, jika ya, hapus dari R2 untuk mencegah storage leak
   const dbUser = await c.env.DB.prepare('SELECT avatar_url FROM users WHERE id = ?').bind(user.id).first();
@@ -106,21 +124,47 @@ users.put('/me', rateLimit(10, 60, 'update_me'), zValidator('json', updateMeSche
     }
   }
 
-  await c.env.DB.prepare(`
+  const result = await c.env.DB.prepare(`
     UPDATE users 
     SET name = ?, avatar_url = ?, bio = ?, portfolio_url = ?, target_min_words = ?, target_keyword_density = ?,
-        preferred_tone = ?, main_language = ?, monthly_article_goal = ?, monthly_word_goal = ?, primary_niche = ?, updated_at = CURRENT_TIMESTAMP 
+        preferred_tone = ?, main_language = ?, monthly_article_goal = ?, monthly_word_goal = ?, primary_niche = ?, 
+        social_linkedin = ?, social_twitter = ?, social_instagram = ?, social_facebook = ?, social_tiktok = ?,
+        updated_at = CURRENT_TIMESTAMP 
     WHERE id = ?
   `).bind(
-    finalName, finalAvatar, bio || null, finalPortfolio, 
-    targetMinWords !== undefined ? targetMinWords : null, 
-    targetKeywordDensity !== undefined ? targetKeywordDensity : null,
+    finalName, finalAvatar, finalBio, finalPortfolio, 
+    targetMinWords ?? null, 
+    targetKeywordDensity ?? null,
     preferredTone || null, mainLanguage || null, 
-    monthlyArticleGoal !== undefined ? monthlyArticleGoal : null, 
-    monthlyWordGoal !== undefined ? monthlyWordGoal : null, 
+    monthlyArticleGoal ?? null, 
+    monthlyWordGoal ?? null, 
     primaryNiche || null,
+    socialLinkedin ?? null, socialTwitter ?? null, socialInstagram ?? null, socialFacebook ?? null, socialTiktok ?? null,
     user.id
   ).run()
+
+  // FIX: Jika user adalah super_admin tapi belum ada di tabel users (karena session lama), insert record-nya
+  if (result.meta.changes === 0 && user.role === 'super_admin') {
+    // Pastikan password hash tidak kosong — fallback ke hash placeholder agar tidak bisa login tanpa env
+    const safePasswordHash = c.env.SUPER_ADMIN_PASSWORD_HASH
+    if (!safePasswordHash) {
+      throw new HTTPException(500, { message: 'Konfigurasi sistem belum lengkap. Hubungi administrator.' })
+    }
+    await c.env.DB.prepare(`
+      INSERT INTO users (id, email, name, avatar_url, password_hash, is_active, bio, portfolio_url, target_min_words, target_keyword_density, preferred_tone, main_language, monthly_article_goal, monthly_word_goal, primary_niche, social_linkedin, social_twitter, social_instagram, social_facebook, social_tiktok)
+      VALUES ('super_admin', ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      user.email || c.env.SUPER_ADMIN_EMAIL || 'admin@admin.com', finalName || 'Super Admin', finalAvatar, safePasswordHash,
+      finalBio, finalPortfolio, 
+      targetMinWords ?? null, 
+      targetKeywordDensity ?? null, 
+      preferredTone || null, mainLanguage || null, 
+      monthlyArticleGoal ?? null, 
+      monthlyWordGoal ?? null, 
+      primaryNiche || null,
+      socialLinkedin ?? null, socialTwitter ?? null, socialInstagram ?? null, socialFacebook ?? null, socialTiktok ?? null
+    ).run()
+  }
 
   return c.json({ message: 'Profil berhasil diperbarui.' })
 })
@@ -217,10 +261,25 @@ users.post('/me/avatar', rateLimit(5, 60, 'avatar_upload'), async (c) => {
   const newAvatarUrl = `/api/media/avatars/${fileName}`
   const mediaId = crypto.randomUUID()
   
-  await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO media (id, r2_key, file_name, mime_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)').bind(mediaId, objectPath, fileName, detectedContentType, file.size, user.id),
-    c.env.DB.prepare('UPDATE users SET avatar_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(newAvatarUrl, user.id)
-  ])
+  await c.env.DB.prepare('INSERT INTO media (id, r2_key, file_name, mime_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)').bind(mediaId, objectPath, fileName, detectedContentType, file.size, user.id).run()
+  
+  const updateResult = await c.env.DB.prepare('UPDATE users SET avatar_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(newAvatarUrl, user.id).run()
+
+  // FIX Bug #2: Jika super_admin belum ada record di tabel users, INSERT baru
+  if (updateResult.meta.changes === 0 && user.role === 'super_admin') {
+    const safePasswordHash = c.env.SUPER_ADMIN_PASSWORD_HASH
+    if (!safePasswordHash) {
+      throw new HTTPException(500, { message: 'Konfigurasi sistem belum lengkap. Hubungi administrator.' })
+    }
+    await c.env.DB.prepare(`
+      INSERT INTO users (id, email, name, avatar_url, password_hash, is_active)
+      VALUES ('super_admin', ?, 'Super Admin', ?, ?, 1)
+    `).bind(
+      user.email || c.env.SUPER_ADMIN_EMAIL || 'admin@admin.com',
+      newAvatarUrl,
+      safePasswordHash
+    ).run()
+  }
 
   return c.json({ message: 'Avatar berhasil diunggah.', avatar_url: newAvatarUrl })
 })

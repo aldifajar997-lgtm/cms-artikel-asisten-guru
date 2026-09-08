@@ -15,6 +15,11 @@ CREATE TABLE users (
     monthly_article_goal INTEGER,
     monthly_word_goal INTEGER,
     primary_niche TEXT,
+    social_linkedin TEXT,
+    social_twitter TEXT,
+    social_instagram TEXT,
+    social_facebook TEXT,
+    social_tiktok TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -87,6 +92,7 @@ CREATE TABLE posts (
     seo_score INTEGER,
     word_count INTEGER,
     reading_time_minutes INTEGER,
+    view_count INTEGER DEFAULT 0,
     author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
     category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
     status TEXT DEFAULT 'draft',
@@ -130,8 +136,10 @@ CREATE TABLE settings (
 );
 
 -- INDEXES UNTUK PERFORMA DAN ANTI-DOS
-CREATE INDEX idx_posts_status_date ON posts(status, published_at);
-CREATE INDEX idx_posts_status_updated ON posts(status, updated_at);
+CREATE INDEX idx_posts_status_date ON posts(status, published_at DESC);
+CREATE INDEX idx_posts_status_updated ON posts(status, updated_at DESC);
+CREATE INDEX idx_posts_status_views ON posts(status, view_count DESC);
+CREATE INDEX idx_posts_status_category ON posts(status, category_id, published_at DESC);
 
 -- FULL TEXT SEARCH (FTS5) UNTUK POSTS
 CREATE VIRTUAL TABLE posts_search USING fts5(id UNINDEXED, title, content, excerpt);

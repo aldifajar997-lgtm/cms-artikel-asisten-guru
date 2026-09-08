@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   Mail,
@@ -12,7 +12,12 @@ import {
   Feather, 
   BookOpen, 
   Loader2, 
-  Lock 
+  Lock,
+  Linkedin,
+  Twitter,
+  Instagram,
+  Facebook,
+  Link2
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import api, { handleApiError } from '../utils/api';
@@ -39,6 +44,18 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
   const [isSubmittingProfile, setIsSubmittingProfile] = useState(false);
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+
+  // FIX Bug #6: Re-sync formData ketika profile prop berubah (misal setelah token refresh)
+  useEffect(() => {
+    setFormData(profile);
+  }, [profile]);
+
+  // FIX Bug #7: Cleanup blob URL saat unmount untuk mencegah memory leak
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const handleChange = (field: keyof UserProfile, value: any) => {
     setFormData((prev) => ({
@@ -79,7 +96,12 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         mainLanguage: formData.mainLanguage,
         monthlyArticleGoal: formData.monthlyArticleGoal,
         monthlyWordGoal: formData.monthlyWordGoal,
-        primaryNiche: formData.primaryNiche
+        primaryNiche: formData.primaryNiche,
+        socialLinkedin: formData.socialLinkedin,
+        socialTwitter: formData.socialTwitter,
+        socialInstagram: formData.socialInstagram,
+        socialFacebook: formData.socialFacebook,
+        socialTiktok: formData.socialTiktok
       });
       
       // 3. Simpan keseluruhan form ke Local Storage (untuk sinkronisasi state UI)
@@ -219,6 +241,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                         e.target.value = '';
                         return;
                       }
+                      // FIX Bug #7: Revoke blob URL lama sebelum membuat yang baru
+                      if (previewUrl) URL.revokeObjectURL(previewUrl);
                       setAvatarFile(file);
                       setPreviewUrl(URL.createObjectURL(file));
                     }
@@ -230,6 +254,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                     type="button"
                     onClick={() => {
                       setAvatarFile(null);
+                      // FIX Bug #7: Revoke blob URL saat hapus foto
+                      if (previewUrl) URL.revokeObjectURL(previewUrl);
                       setPreviewUrl(null);
                       setFormData({ ...formData, avatarUrl: '' });
                     }}
@@ -273,6 +299,121 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                 onChange={(e) => handleChange('primaryNiche', e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Section 1.5: Tautan Media Sosial */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
+          <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+            <Globe className="w-4 h-4 text-teal-600" />
+            <h3 className="text-sm font-bold text-slate-800">Tautan Media Sosial (Opsional)</h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            {/* LinkedIn */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Linkedin className="w-3.5 h-3.5 text-blue-600" /> LinkedIn
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="username_linkedin"
+                  value={formData.socialLinkedin || ''}
+                  onChange={(e) => handleChange('socialLinkedin', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
+                />
+                {formData.socialLinkedin && (
+                  <a href={`https://linkedin.com/in/${formData.socialLinkedin}`} target="_blank" rel="noopener noreferrer" className="p-2 flex shrink-0 items-center justify-center bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 transition-colors" title="Kunjungi Tautan">
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Twitter */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Twitter className="w-3.5 h-3.5 text-blue-400" /> Twitter / X
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="@username"
+                  value={formData.socialTwitter || ''}
+                  onChange={(e) => handleChange('socialTwitter', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
+                />
+                {formData.socialTwitter && (
+                  <a href={`https://twitter.com/${formData.socialTwitter.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer" className="p-2 flex shrink-0 items-center justify-center bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 transition-colors" title="Kunjungi Tautan">
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Instagram */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Instagram className="w-3.5 h-3.5 text-pink-600" /> Instagram
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="@username"
+                  value={formData.socialInstagram || ''}
+                  onChange={(e) => handleChange('socialInstagram', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
+                />
+                {formData.socialInstagram && (
+                  <a href={`https://instagram.com/${formData.socialInstagram.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer" className="p-2 flex shrink-0 items-center justify-center bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 transition-colors" title="Kunjungi Tautan">
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Facebook */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Facebook className="w-3.5 h-3.5 text-blue-700" /> Facebook
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="username_facebook"
+                  value={formData.socialFacebook || ''}
+                  onChange={(e) => handleChange('socialFacebook', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
+                />
+                {formData.socialFacebook && (
+                  <a href={`https://facebook.com/${formData.socialFacebook}`} target="_blank" rel="noopener noreferrer" className="p-2 flex shrink-0 items-center justify-center bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 transition-colors" title="Kunjungi Tautan">
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* TikTok */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-slate-900" /> TikTok
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="@username"
+                  value={formData.socialTiktok || ''}
+                  onChange={(e) => handleChange('socialTiktok', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
+                />
+                {formData.socialTiktok && (
+                  <a href={`https://tiktok.com/@${formData.socialTiktok.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer" className="p-2 flex shrink-0 items-center justify-center bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 transition-colors" title="Kunjungi Tautan">
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -387,49 +528,52 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       </form>
 
       {/* Section 4: Ganti Password (Terpisah dari Profile Form) */}
-      <form onSubmit={handlePasswordSubmit} className="bg-white rounded-2xl border border-red-100 p-6 shadow-xs space-y-4">
-        <div className="flex items-center space-x-2 border-b border-red-50 pb-3">
-          <Lock className="w-4 h-4 text-red-500" />
-          <h3 className="text-sm font-bold text-slate-800">Ubah Password & Keamanan</h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          <div className="space-y-1.5">
-            <label className="font-semibold text-slate-700">Password Lama</label>
-            <input
-              required
-              type="password"
-              value={passwordData.old_password}
-              onChange={(e) => setPasswordData(prev => ({...prev, old_password: e.target.value}))}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
-            />
+      {/* FIX Bug #9: Sembunyikan untuk super_admin karena backend menolak perubahan password via UI */}
+      {profile.role !== 'super_admin' && (
+        <form onSubmit={handlePasswordSubmit} className="bg-white rounded-2xl border border-red-100 p-6 shadow-xs space-y-4">
+          <div className="flex items-center space-x-2 border-b border-red-50 pb-3">
+            <Lock className="w-4 h-4 text-red-500" />
+            <h3 className="text-sm font-bold text-slate-800">Ubah Password & Keamanan</h3>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="font-semibold text-slate-700">Password Baru</label>
-            <input
-              required
-              type="password"
-              minLength={6}
-              value={passwordData.new_password}
-              onChange={(e) => setPasswordData(prev => ({...prev, new_password: e.target.value}))}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
-            />
-            <p className="text-[11px] text-slate-400">Minimal 6 karakter.</p>
-          </div>
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700">Password Lama</label>
+              <input
+                required
+                type="password"
+                value={passwordData.old_password}
+                onChange={(e) => setPasswordData(prev => ({...prev, old_password: e.target.value}))}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
+              />
+            </div>
 
-        <div className="flex justify-end pt-2">
-          <button
-            type="submit"
-            disabled={isSubmittingPassword}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl text-sm font-semibold shadow-lg shadow-red-600/20 transition-all cursor-pointer disabled:opacity-70"
-          >
-            {isSubmittingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-            <span>Ubah Password</span>
-          </button>
-        </div>
-      </form>
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700">Password Baru</label>
+              <input
+                required
+                type="password"
+                minLength={6}
+                value={passwordData.new_password}
+                onChange={(e) => setPasswordData(prev => ({...prev, new_password: e.target.value}))}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
+              />
+              <p className="text-[11px] text-slate-400">Minimal 6 karakter.</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={isSubmittingPassword}
+              className="inline-flex items-center gap-2 px-6 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl text-sm font-semibold shadow-lg shadow-red-600/20 transition-all cursor-pointer disabled:opacity-70"
+            >
+              {isSubmittingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+              <span>Ubah Password</span>
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 };

@@ -6,7 +6,6 @@ import { ArticleList } from './components/ArticleList';
 import { CategorySettings } from './components/CategorySettings';
 import { ProfileSettings } from './components/ProfileSettings';
 import { UserSettings } from './components/UserSettings';
-import { ArticlePreviewModal } from './components/ArticlePreviewModal';
 import { generateSlug } from './utils/seoAnalyzer';
 import { Login } from './components/Login';
 import { ForgotPassword } from './components/ForgotPassword';
@@ -28,6 +27,7 @@ export default function App() {
     totalArticles: 0,
     totalWords: 0,
     avgScore: 0,
+    totalViews: 0,
     publishedCount: 0,
     draftCount: 0
   });
@@ -65,6 +65,7 @@ export default function App() {
           totalArticles: res.data.data.total_articles || 0,
           totalWords: res.data.data.total_words || 0,
           avgScore: Math.round(res.data.data.avg_score || 0),
+          totalViews: res.data.data.total_views || 0,
           publishedCount: res.data.data.published_count || 0,
           draftCount: res.data.data.draft_count || 0
         });
@@ -102,6 +103,7 @@ export default function App() {
           seoScore: p.seo_score || 0,
           wordCount: p.word_count || 0,
           readingTimeMinutes: p.reading_time_minutes || 0,
+          viewCount: p.view_count || 0,
           featuredImage: p.featured_image || '',
           featuredImageAlt: p.featured_image_alt || '',
           featuredImageCaption: p.featured_image_caption || '',
@@ -164,9 +166,9 @@ export default function App() {
       const profileRes = await api.get('/users/me');
       setProfile(prev => ({
         ...prev,
-        name: profileRes.data.name || prev.name,
-        email: profileRes.data.email || prev.email,
-        role: profileRes.data.role || prev.role,
+        name: profileRes.data.name ?? prev.name,
+        email: profileRes.data.email ?? prev.email,
+        role: profileRes.data.role ?? prev.role,
         avatarUrl: profileRes.data.avatar_url ?? '',
         bio: profileRes.data.bio ?? '',
         portfolioUrl: profileRes.data.portfolio_url ?? '',
@@ -176,7 +178,12 @@ export default function App() {
         mainLanguage: profileRes.data.main_language ?? '',
         monthlyArticleGoal: profileRes.data.monthly_article_goal ?? 0,
         monthlyWordGoal: profileRes.data.monthly_word_goal ?? 0,
-        primaryNiche: profileRes.data.primary_niche ?? ''
+        primaryNiche: profileRes.data.primary_niche ?? '',
+        socialLinkedin: profileRes.data.social_linkedin ?? '',
+        socialTwitter: profileRes.data.social_twitter ?? '',
+        socialInstagram: profileRes.data.social_instagram ?? '',
+        socialFacebook: profileRes.data.social_facebook ?? '',
+        socialTiktok: profileRes.data.social_tiktok ?? ''
       }));
     } catch (profileErr) {
       console.error('Failed to fetch profile', profileErr);
@@ -250,8 +257,19 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('list-artikel');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
-  // Modal preview state
-  const [previewArticle, setPreviewArticle] = useState<Article | null>(null);
+  // Handle Preview
+  const handlePreviewArticle = async (article: Article) => {
+    const frontendUrl = import.meta.env.VITE_FRONTEND_URL || 'https://asisten-guru.id';
+
+    try {
+      const res = await api.get(`/posts/admin/preview-token/${article.id}`);
+      const token = res.data.data;
+      window.open(`${frontendUrl}/blog/preview/${article.id}?token=${token}`, '_blank');
+    } catch (err: any) {
+      console.error('Gagal membuat preview token:', err);
+      alert('Gagal membuat tautan pratinjau. ' + handleApiError(err));
+    }
+  };
 
   // Handle Load More
   const handleLoadMore = async () => {
@@ -321,6 +339,7 @@ export default function App() {
       seoScore: 40,
       wordCount: 80,
       readingTimeMinutes: 1,
+      viewCount: 0,
       tagIds: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -340,17 +359,46 @@ export default function App() {
   };
 
   // Handle Duplicate Article
-  const handleDuplicateArticle = (article: Article) => {
-    const duplicated: Article = {
-      ...article,
-      id: `art-${Date.now()}`,
-      title: `${article.title} (Salinan)`,
-      slug: `${article.slug}-salinan`,
-      status: 'draft',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setArticles([duplicated, ...articles]);
+  const handleDuplicateArticle = async (article: Article) => {
+    try {
+      const duplicatedPayload = {
+        title: `${article.title} (Copy)`,
+        slug: `${article.slug}-copy`,
+        excerpt: article.excerpt,
+        content: article.content,
+        category_id: article.categoryId,
+        focus_keyword: article.focusKeyword,
+        secondary_keywords: article.secondaryKeywords,
+        meta_title: article.metaTitle,
+        meta_description: article.metaDescription,
+        status: 'draft',
+        seo_score: article.seoScore,
+        word_count: article.wordCount,
+        reading_time_minutes: article.readingTimeMinutes,
+        featured_image: article.featuredImage,
+        featured_image_alt: article.featuredImageAlt,
+        featured_image_caption: article.featuredImageCaption,
+        tag_ids: article.tagIds || []
+      };
+
+      const response = await api.post('/posts', duplicatedPayload);
+      const newId = response.data.id;
+
+      const duplicatedArticle: Article = {
+        ...article,
+        id: newId,
+        title: `${article.title} (Copy)`,
+        slug: `${article.slug}-copy`,
+        status: 'draft',
+        viewCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setArticles(prev => [duplicatedArticle, ...prev]);
+    } catch (err: any) {
+      console.error('Gagal menduplikasi artikel:', err);
+      alert('Gagal menduplikasi artikel. ' + handleApiError(err));
+    }
   };
 
   // Handle Delete Article
@@ -532,7 +580,7 @@ export default function App() {
                     }
                     setActiveTab('list-artikel');
                   }}
-                  onPreview={(art) => setPreviewArticle(art)}
+                  onPreview={handlePreviewArticle}
                   onTagsChange={(newTags) => setTags(newTags)}
                   setHasUnsavedChanges={setHasUnsavedChanges}
                 />
@@ -559,7 +607,7 @@ export default function App() {
                       onNewArticle={handleNewArticle}
                       onDeleteArticle={handleDeleteArticle}
                       onDuplicateArticle={handleDuplicateArticle}
-                      onPreviewArticle={(art) => setPreviewArticle(art)}
+                      onPreviewArticle={handlePreviewArticle}
                     />
                   )}
 
@@ -593,19 +641,6 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* Article Reader Preview Modal */}
-      <ArticlePreviewModal
-        article={previewArticle}
-        categories={categories}
-        profile={profile}
-        onClose={() => setPreviewArticle(null)}
-        onEdit={(art) => {
-          setPreviewArticle(null);
-          setCurrentArticle(art);
-          setActiveTab('buat-artikel');
-        }}
-      />
     </div>
   );
 }

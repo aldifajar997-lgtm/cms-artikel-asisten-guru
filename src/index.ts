@@ -22,9 +22,7 @@ app.use('*', secureHeaders({
   xFrameOptions: 'DENY',
   xXssProtection: '1; mode=block',
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'none'"]
-    }
+    defaultSrc: ["'none'"]
   }
 }))
 

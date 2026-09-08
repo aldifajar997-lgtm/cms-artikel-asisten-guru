@@ -14,7 +14,8 @@ import {
   CheckCircle2,
   Calendar,
   BarChart3,
-  Image as ImageIcon
+  Image as ImageIcon,
+  MousePointerClick
 } from 'lucide-react';
 import { Article, Category, ArticleStatus, UserProfile, ArticleStats } from '../types';
 import { useEffect } from 'react';
@@ -162,6 +163,17 @@ export const ArticleList: React.FC<ArticleListProps> = ({
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
+          <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+            <MousePointerClick className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Tayangan</p>
+            <p className="text-2xl font-bold text-slate-800">{stats.totalViews?.toLocaleString('id-ID') || 0}</p>
+            <p className="text-[11px] text-teal-600 font-medium">Pengunjung Pembaca</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
           <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
             <Layers className="w-5 h-5" />
           </div>
@@ -224,6 +236,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             >
               <option value="newest">Terbaru Diperbarui</option>
               <option value="oldest">Terlama</option>
+              <option value="popular">Tayangan Terbanyak</option>
               <option value="score">Skor SEO Tertinggi</option>
               <option value="words">Jumlah Kata Terbanyak</option>
             </select>
@@ -320,7 +333,11 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                       </span>
                       <span className="flex items-center space-x-1 text-slate-500">
                         <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>~{article.readingTimeMinutes} mnt baca</span>
+                        <span>~{article.readingTimeMinutes || 0} mnt baca</span>
+                      </span>
+                      <span className="flex items-center space-x-1 text-slate-500">
+                        <MousePointerClick className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{article.viewCount?.toLocaleString('id-ID') || 0} views</span>
                       </span>
                       <span className="flex items-center space-x-1 text-slate-400">
                         <Calendar className="w-3.5 h-3.5" />

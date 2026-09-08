@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import api, { handleApiError, setAccessToken } from '../utils/api';
+import { TurnstileWidget } from './TurnstileWidget';
+
 
 interface LoginProps {
   onLoginSuccess: (token: string) => void;
@@ -21,13 +23,29 @@ export function Login({ onLoginSuccess, onForgotPassword }: LoginProps) {
     setError(null);
 
     try {
-      const response = await api.post('/auth/login', { email, password });
+      const turnstileTokenElement = (e.target as HTMLFormElement).elements.namedItem('cf-turnstile-response') as HTMLInputElement | null;
+      const turnstileToken = turnstileTokenElement ? turnstileTokenElement.value : '';
+
+      if (!turnstileToken) {
+        setError("Silakan selesaikan verifikasi keamanan (CAPTCHA) terlebih dahulu.");
+        setIsLoading(false);
+        return;
+      }
+
+      const response = await api.post('/auth/login', { 
+        email, 
+        password,
+        'cf-turnstile-response': turnstileToken
+      });
       const { access_token } = response.data;
       
       setAccessToken(access_token);
       onLoginSuccess(access_token);
     } catch (err) {
       setError(handleApiError(err));
+      if (window.turnstile) {
+        window.turnstile.reset();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -126,6 +144,8 @@ export function Login({ onLoginSuccess, onForgotPassword }: LoginProps) {
                 </button>
               </div>
             </div>
+
+            <TurnstileWidget action="login" />
 
             <motion.button
               whileHover={{ scale: 1.01 }}

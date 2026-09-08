@@ -1,25 +1,29 @@
 import { SEOAnalysis, SEOCheckItem } from '../types';
 
 export function calculateSEOAnalysis(
-  title: string,
-  content: string,
-  focusKeyword: string,
-  metaTitle: string,
-  metaDescription: string,
+  title: string = '',
+  content: string = '',
+  focusKeyword: string = '',
+  metaTitle: string = '',
+  metaDescription: string = '',
   targetWords: number = 1000,
   featuredImage?: string,
   featuredImageAlt?: string
 ): SEOAnalysis {
-  const cleanKeyword = focusKeyword.trim().toLowerCase();
+  const cleanKeyword = (focusKeyword || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const safeTitle = (title || '').toLowerCase();
+  const safeContent = (content || '');
+  const safeMetaDesc = (metaDescription || '').trim();
   
   // Strip HTML tags and entities for word counting and keyword matching
-  const plainText = content
+  const plainText = safeContent
     .replace(/<[^>]*>?/gm, ' ')
-    .replace(/&[a-z0-9#]+;/gi, ' ');
+    .replace(/&[a-z0-9#]+;/gi, ' ')
+    .replace(/\s+/g, ' ') // Normalize spaces so phrase matching works
+    .trim();
   
   const textWords = plainText
     .replace(/[#*`_~>[\]()\-+!=]/g, ' ')
-    .trim()
     .split(/\s+/)
     .filter(Boolean);
 
@@ -40,8 +44,8 @@ export function calculateSEOAnalysis(
   const keywordDensity = wordCount > 0 ? Number(((keywordCount / wordCount) * 100).toFixed(2)) : 0;
 
   // Headings analysis (SunEditor outputs HTML, not markdown)
-  const h2Matches = content.match(/<h2[^>]*>.*?<\/h2>/gi) || [];
-  const h3Matches = content.match(/<h3[^>]*>.*?<\/h3>/gi) || [];
+  const h2Matches = safeContent.match(/<h2[^>]*>.*?<\/h2>/gi) || [];
+  const h3Matches = safeContent.match(/<h3[^>]*>.*?<\/h3>/gi) || [];
   const h2Count = h2Matches.length;
   const h3Count = h3Matches.length;
 
@@ -68,7 +72,7 @@ export function calculateSEOAnalysis(
   }
 
   // 2. Keyword in Title
-  const titleLower = title.toLowerCase();
+  const titleLower = safeTitle;
   if (cleanKeyword && titleLower.includes(cleanKeyword)) {
     checks.push({
       id: 'kw-title',
@@ -193,7 +197,7 @@ export function calculateSEOAnalysis(
   }
 
   // 7. Meta Description
-  const metaDescLen = metaDescription.trim().length;
+  const metaDescLen = safeMetaDesc.length;
   if (metaDescLen >= 110 && metaDescLen <= 160) {
     checks.push({
       id: 'meta-desc',
@@ -279,7 +283,7 @@ export function calculateSEOAnalysis(
 }
 
 export function generateSlug(text: string): string {
-  return text
+  return (text || '')
     .toLowerCase()
     .trim()
     .replace(/[^\w\s-]/g, '')

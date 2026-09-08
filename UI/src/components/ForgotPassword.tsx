@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Loader2, AlertCircle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import api, { handleApiError } from '../utils/api';
+import { TurnstileWidget } from './TurnstileWidget';
 
 interface ForgotPasswordProps {
   onBackToLogin: () => void;
@@ -19,10 +20,25 @@ export function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
     setError(null);
 
     try {
-      await api.post('/auth/forgot-password', { email });
+      const turnstileTokenElement = (e.target as HTMLFormElement).elements.namedItem('cf-turnstile-response') as HTMLInputElement | null;
+      const turnstileToken = turnstileTokenElement ? turnstileTokenElement.value : '';
+
+      if (!turnstileToken) {
+        setError("Silakan selesaikan verifikasi keamanan (CAPTCHA) terlebih dahulu.");
+        setIsLoading(false);
+        return;
+      }
+
+      await api.post('/auth/forgot-password', { 
+        email,
+        'cf-turnstile-response': turnstileToken
+      });
       setSuccess(true);
     } catch (err) {
       setError(handleApiError(err));
+      if (window.turnstile) {
+        window.turnstile.reset();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +118,8 @@ export function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
                   />
                 </div>
               </div>
+
+              <TurnstileWidget action="forgot_password" />
 
               <motion.button
                 whileHover={{ scale: 1.01 }}

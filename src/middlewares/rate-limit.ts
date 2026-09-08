@@ -2,7 +2,7 @@ import { Context, Next } from 'hono'
 import { Bindings, Variables } from '../types'
 import { HTTPException } from 'hono/http-exception'
 
-export const rateLimit = (limit: number, windowSecs: number, prefix: string = 'rate_limit') => {
+export const rateLimit = (limit: number, windowSecs: number, prefix: string | ((c: Context<{ Bindings: Bindings; Variables: Variables }>) => string) = 'rate_limit') => {
   return async (c: Context<{ Bindings: Bindings; Variables: Variables }>, next: Next) => {
     // CF-Connecting-IP di-set oleh edge network dan tidak bisa dipalsukan
     // selama traffic melewati proxy CDN (selalu terjadi untuk Workers).
@@ -13,7 +13,8 @@ export const rateLimit = (limit: number, windowSecs: number, prefix: string = 'r
     // setiap window punya counter terpisah (fix M3: sliding window TTL)
     // dan mengurangi dampak race condition TOCTOU (fix C2)
     const windowBucket = Math.floor(Date.now() / (windowSecs * 1000))
-    const key = `${prefix}:${ip}:${windowBucket}`
+    const prefixValue = typeof prefix === 'function' ? prefix(c) : prefix
+    const key = `${prefixValue}:${ip}:${windowBucket}`
 
     const current = await c.env.KV.get(key)
     const count = current ? parseInt(current) : 0

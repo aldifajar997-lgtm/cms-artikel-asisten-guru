@@ -96,7 +96,7 @@ seo.get('/sitemap-posts-:page.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
       const lastmodTag = lastmod ? `\n    <lastmod>${escapeXml(lastmod)}</lastmod>` : ''
       return `
   <url>
-    <loc>${frontendUrl}/artikel/${escapeXml(post.slug as string)}</loc>${lastmodTag}
+    <loc>${frontendUrl}/blog/${escapeXml(post.slug as string)}</loc>${lastmodTag}
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>`
@@ -130,14 +130,15 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
 
     const categoryUrls = categories.results.map(category => `
   <url>
-    <loc>${frontendUrl}/kategori/${escapeXml(category.slug as string)}</loc>
+    <loc>${frontendUrl}/blog/kategori/${escapeXml(category.slug as string)}</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>`).join('')
 
+    // Hub belum memiliki rute untuk tag, namun kita siapkan strukturnya di /blog/tag/
     const tagUrls = tags.results.map(tag => `
   <url>
-    <loc>${frontendUrl}/tag/${escapeXml(tag.slug as string)}</loc>
+    <loc>${frontendUrl}/blog/tag/${escapeXml(tag.slug as string)}</loc>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>`).join('')

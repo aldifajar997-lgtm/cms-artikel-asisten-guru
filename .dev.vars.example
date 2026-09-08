@@ -21,3 +21,8 @@ FRONTEND_URL=http://localhost:3000
 # Production: https://asisten-guru.id,https://www.asisten-guru.id
 # Local dev: http://localhost:3000
 ALLOWED_ORIGINS=http://localhost:3000
+
+# Cloudflare Turnstile Configuration
+# Gunakan dummy testing secret untuk local dev (jika menggunakan testing sitekey)
+TURNSTILE_SECRET=1x0000000000000000000000000000000AA
+TURNSTILE_HOSTNAMES=localhost
