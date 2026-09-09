@@ -46,7 +46,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   }
 
   // Hapus p.seo_score untuk mencegah kebocoran strategi SEO ke publik
-  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at FROM posts p"
+  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id"
   let whereClauses = ["p.status = 'published'"]
   const params: any[] = []
 
@@ -123,7 +123,7 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
 
   // Hapus focus_keyword, secondary_keywords, seo_score, word_count dari hasil query ke publik
   const post = await c.env.DB.prepare(
-    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE slug = ? AND status = 'published'"
+    "SELECT p.id, p.slug, p.title, p.excerpt, p.content, p.featured_image, p.featured_image_alt, p.featured_image_caption, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.status, p.published_at, p.created_at, p.updated_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = ? AND p.status = 'published'"
   ).bind(slug).first()
 
   if (!post) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
@@ -242,7 +242,7 @@ const postSchema = z.object({
   }
 })
 
-posts.get('/admin/stats', async (c) => {
+posts.get('/admin/stats', requirePermission('view_dashboard'), async (c) => {
   const user = c.get('user')
   let query = `
     SELECT 
@@ -256,7 +256,9 @@ posts.get('/admin/stats', async (c) => {
   `
   const params: any[] = []
 
-  if (user.role !== 'super_admin') {
+  // Writer hanya lihat artikelnya sendiri; Super Admin, Admin, Editor lihat semua
+  const canSeeAll = ['super_admin', 'Admin', 'Editor']
+  if (!canSeeAll.includes(user.role)) {
     query += ' WHERE author_id = ?'
     params.push(user.id)
   }
@@ -269,7 +271,8 @@ posts.get('/admin/preview-token/:id', requirePermission('edit_post'), async (c) 
   const targetId = c.req.param('id')
   const user = c.get('user')
 
-  if (user.role !== 'super_admin') {
+  const allowedToPreviewAny = ['super_admin', 'Admin', 'Editor']
+  if (!allowedToPreviewAny.includes(user.role)) {
     const existing = await c.env.DB.prepare('SELECT author_id FROM posts WHERE id = ?').bind(targetId).first()
     if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
     if (existing.author_id !== user.id) throw new HTTPException(403, { message: 'Anda tidak berhak melihat preview artikel ini.' })
@@ -285,7 +288,7 @@ posts.get('/admin/preview-token/:id', requirePermission('edit_post'), async (c) 
   return c.json({ data: token })
 })
 
-posts.get('/admin/all', async (c) => {
+posts.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   const user = c.get('user')
   const { limit, offset } = getPagination(c, 50, 100)
 
@@ -298,7 +301,9 @@ posts.get('/admin/all', async (c) => {
   const params: any[] = []
   const conditions: string[] = []
 
-  if (user.role !== 'super_admin') {
+  // Writer hanya lihat artikelnya sendiri; Super Admin, Admin, Editor lihat semua
+  const canSeeAll = ['super_admin', 'Admin', 'Editor']
+  if (!canSeeAll.includes(user.role)) {
     conditions.push('posts.author_id = ?')
     params.push(user.id)
   }
@@ -350,7 +355,8 @@ posts.get('/admin/:id', requirePermission('edit_post'), async (c) => {
   let query = 'SELECT posts.*, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts WHERE id = ?'
   const params: any[] = [targetId]
 
-  if (user.role !== 'super_admin') {
+  const allowedToViewAny = ['super_admin', 'Admin', 'Editor']
+  if (!allowedToViewAny.includes(user.role)) {
     query += ' AND author_id = ?'
     params.push(user.id)
   }
@@ -373,7 +379,7 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
 
   const id = crypto.randomUUID()
   const publishedAt = body.status === 'published' ? new Date().toISOString() : null
-  const authorId = user.id === 'super_admin' ? null : user.id
+  const authorId = user.id
 
   try {
     const stmts = []
@@ -415,12 +421,15 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   const user = c.get('user')
   const body = c.req.valid('json')
 
-  // Verifikasi Ownership jika bukan super_admin
+  // Verifikasi Ownership
   const existing = await c.env.DB.prepare('SELECT author_id, slug FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
 
-  if (user.role !== 'super_admin') {
-    if (existing.author_id !== user.id) throw new HTTPException(403, { message: 'Anda tidak berhak mengedit artikel milik orang lain.' })
+  const allowedToEditAny = ['super_admin', 'Admin', 'Editor']
+  if (!allowedToEditAny.includes(user.role)) {
+    if (existing.author_id !== user.id) {
+      throw new HTTPException(403, { message: 'Anda tidak berhak mengedit artikel milik orang lain.' })
+    }
   }
 
   // Sanitasi HTML (Stored XSS Protection) dengan dukungan Iframe untuk Embed dan Style
@@ -486,8 +495,11 @@ posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_w
     throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
   }
 
-  if (user.role !== 'super_admin' && existing.author_id !== user.id) {
-    throw new HTTPException(403, { message: 'Anda tidak berhak menghapus artikel ini.' })
+  const allowedToDeleteAny = ['super_admin', 'Admin', 'Editor']
+  if (!allowedToDeleteAny.includes(user.role)) {
+    if (existing.author_id !== user.id) {
+      throw new HTTPException(403, { message: 'Anda tidak berhak menghapus artikel ini.' })
+    }
   }
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(targetId).run()
