@@ -287,8 +287,7 @@ users.post('/me/avatar', rateLimit(5, 60, 'avatar_upload'), async (c) => {
 // --- MANAJEMEN USER (Oleh Admin) ---
 
 const createUserSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().email().trim().toLowerCase(),
   name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v)
 })
 
@@ -296,36 +295,55 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat melakukan aksi ini.' })
 
-  const { email, password, name } = c.req.valid('json')
+  const { email, name } = c.req.valid('json')
 
-  const exists = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
-  if (exists) {
-    throw new HTTPException(400, { message: 'Email sudah terdaftar.' })
+  // SECURITY PATCH: Cegah DoS pada Super Admin dengan memblokir invitation ke email sistem
+  if (c.env.SUPER_ADMIN_EMAIL && email === c.env.SUPER_ADMIN_EMAIL.toLowerCase()) {
+    throw new HTTPException(400, { message: 'Email ini dikhususkan untuk sistem (Reserved) dan tidak dapat diundang.' })
   }
 
-  const id = crypto.randomUUID()
-  const hashed = await hashPassword(password)
+  const exists = await c.env.DB.prepare('SELECT id, name FROM users WHERE email = ?').bind(email).first()
+  
+  let userId = ''
+  let userName = name
 
-  // Default role 'Writer'
-  const defaultRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
-  if (!defaultRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
+  if (exists) {
+    userId = exists.id as string
+    userName = (exists.name as string) || name
+    // Jika user sudah ada, kita anggap sebagai aksi "Resend Invitation / Reset Password"
+  } else {
+    userId = crypto.randomUUID()
+    // Default ke random string kuat karena password di-set melalui email setup
+    const randomTempPassword = crypto.randomUUID() + crypto.randomUUID()
+    const hashed = await hashPassword(randomTempPassword)
 
-  await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').bind(id, email, hashed, name || null),
-    c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(id, defaultRole.id)
-  ])
+    // Default role 'Writer'
+    const defaultRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
+    if (!defaultRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
 
-  // --- EMAIL UNDANGAN (fix C4: kirim link setup, bukan password plaintext) ---
+    await c.env.DB.batch([
+      c.env.DB.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').bind(userId, email, hashed, name || null),
+      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, defaultRole.id)
+    ])
+  }
+
+  // --- EMAIL UNDANGAN / RESEND UNDANGAN (fix C4: kirim link setup) ---
+  // Buat token setup password (agar user bisa set password sendiri)
+  const setupToken = crypto.randomUUID()
+  const hashedSetupToken = await hashToken(setupToken)
+  
+  // Hapus token reset sebelumnya agar tidak duplikat/menumpuk
+  await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId).run()
+
+  await c.env.DB.prepare(`
+    INSERT INTO password_resets (id, user_id, token, expires_at)
+    VALUES (?, ?, ?, datetime('now', '+24 hours'))
+  `).bind(crypto.randomUUID(), userId, hashedSetupToken).run()
+
   if (c.env.BREVO_API_KEY) {
     try {
-      // Buat token setup password (agar user bisa set password sendiri)
-      const setupToken = crypto.randomUUID()
-      await c.env.DB.prepare(`
-        INSERT INTO password_resets (id, user_id, token, expires_at)
-        VALUES (?, ?, ?, datetime('now', '+24 hours'))
-      `).bind(crypto.randomUUID(), id, setupToken).run()
-
       const frontendUrl = getSafeFrontendUrl(c.env.FRONTEND_URL)
+      // Link email tetap menggunakan plaintext token
       const setupLink = `${frontendUrl}/?reset_token=${setupToken}`
 
       const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -337,9 +355,9 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
         },
         body: JSON.stringify({
           templateId: 4,
-          to: [{ email: email, name: name || 'Bapak/Ibu' }],
+          to: [{ email: email, name: userName || 'Bapak/Ibu' }],
           params: {
-            NAME: name || 'Bapak/Ibu',
+            NAME: userName || 'Bapak/Ibu',
             EMAIL: email,
             SETUP_LINK: setupLink
           }
@@ -349,13 +367,17 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
       if (!brevoResponse.ok) {
         const errText = await brevoResponse.text()
         console.error('Brevo API Invitation gagal (HTTP', brevoResponse.status, '):', errText)
+        return c.json({ message: exists ? 'User sudah terdaftar, tetapi email undangan ulang gagal terkirim. Silakan reset sandi secara manual via ikon gembok.' : 'User berhasil dibuat, tetapi email gagal terkirim. Silakan reset sandi secara manual via ikon gembok.', id: userId })
       }
     } catch (error) {
       console.error('Brevo Fetch Error (Invitation):', error)
+      return c.json({ message: exists ? 'User sudah terdaftar, tetapi sistem gagal mengirim email undangan ulang. Silakan reset sandi secara manual via ikon gembok.' : 'User berhasil dibuat, tetapi sistem gagal mengirim email. Silakan reset sandi secara manual via ikon gembok.', id: userId })
     }
+  } else {
+    return c.json({ message: exists ? 'User sudah terdaftar, namun Brevo API belum disetel (email tidak terkirim). Silakan reset sandi secara manual.' : 'User berhasil dibuat, namun Brevo API belum disetel (email tidak terkirim). Silakan reset sandi secara manual.', id: userId })
   }
 
-  return c.json({ message: 'User berhasil dibuat dan undangan telah dikirim.', id })
+  return c.json({ message: exists ? 'Email undangan ulang berhasil dikirim ke user yang sudah ada.' : 'User berhasil dibuat dan undangan telah dikirim ke email.', id: userId })
 })
 
 users.get('/', rateLimit(500, 60, 'public_users_list'), async (c) => {
@@ -395,7 +417,10 @@ users.put('/:id/reset-password', zValidator('json', resetPasswordSchema), async 
     throw new HTTPException(404, { message: 'User tidak ditemukan.' })
   }
 
-  await c.env.DB.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').bind(targetId).run()
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').bind(targetId),
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(targetId)
+  ])
 
   return c.json({ message: 'Password user berhasil direset.' })
 })

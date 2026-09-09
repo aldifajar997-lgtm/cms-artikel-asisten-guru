@@ -79,9 +79,23 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         const data = new FormData();
         data.append('avatar', avatarFile);
         
-        // Axios akan otomatis memproses FormData dan menetapkan boundary yang benar jika kita TIDAK menyetel Content-Type
-        const res = await api.post('/users/me/avatar', data);
+        // Axios butuh kita secara eksplisit mendeklarasikan multipart agar menimpa default application/json
+        const res = await api.post('/users/me/avatar', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        // Biarkan response dari server (relative URL) yang dikirim kembali ke PUT /users/me
+        // agar backend tidak kebingungan dan menganggap URL berubah lalu menghapusnya
         finalAvatarUrl = res.data.avatar_url;
+      }
+
+      // Pastikan kita hanya mengirimkan URL relatif ke backend
+      if (finalAvatarUrl && finalAvatarUrl.startsWith('http')) {
+        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
+        const origin = baseUrl.replace('/api', '');
+        if (finalAvatarUrl.startsWith(origin)) {
+          finalAvatarUrl = finalAvatarUrl.substring(origin.length);
+        }
       }
 
       // 2. Simpan profil teks ke Backend
@@ -155,7 +169,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-5 text-center sm:text-left">
           <img
-            src={previewUrl || formData.avatarUrl || 'https://ui-avatars.com/api/?name=' + formData.name}
+            src={previewUrl || (formData.avatarUrl ? (formData.avatarUrl.startsWith('http') ? formData.avatarUrl : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${formData.avatarUrl}`) : null) || 'https://ui-avatars.com/api/?name=' + formData.name}
             alt={formData.name}
             referrerPolicy="no-referrer"
             className="w-20 h-20 rounded-2xl object-cover ring-4 ring-teal-500/10 shadow-sm"
@@ -253,11 +267,13 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setAvatarFile(null);
-                      // FIX Bug #7: Revoke blob URL saat hapus foto
-                      if (previewUrl) URL.revokeObjectURL(previewUrl);
-                      setPreviewUrl(null);
-                      setFormData({ ...formData, avatarUrl: '' });
+                      if (window.confirm('Foto akan dihapus dari form. Jangan lupa klik "Simpan Profil" di bawah untuk memanenkannya!')) {
+                        setAvatarFile(null);
+                        // FIX Bug #7: Revoke blob URL saat hapus foto
+                        if (previewUrl) URL.revokeObjectURL(previewUrl);
+                        setPreviewUrl(null);
+                        setFormData({ ...formData, avatarUrl: '' });
+                      }
                     }}
                     className="text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl border border-transparent hover:border-red-100 whitespace-nowrap transition-colors"
                   >

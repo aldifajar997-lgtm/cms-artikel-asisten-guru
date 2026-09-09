@@ -39,6 +39,7 @@
     }
   ],
   "vars": {
+    "FRONTEND_URL": "https://asisten-guru.my.id",
     "ALLOWED_ORIGINS": "https://asisten-guru.id,https://www.asisten-guru.id,https://admin.asisten-guru.my.id,https://asisten-guru.my.id",
     "TURNSTILE_HOSTNAMES": "cms.asisten-guru.my.id,admin.asisten-guru.my.id,asisten-guru.my.id"
   }

@@ -10,11 +10,11 @@ export const errorHandler = async (err: Error, c: Context) => {
   console.error(`[ERROR] ${c.req.method} ${safeUrl} - ${safeMessage}`)
 
   if (err instanceof HTTPException) {
-    return c.json({ error: err.message }, err.status)
+    return c.json({ error: err.message, message: err.message }, err.status)
   }
 
   // Sembunyikan error teknis dari client — jangan pernah expose detail internal
-  return c.json({ error: 'Terjadi kendala saat memproses permintaan Anda.' }, 500)
+  return c.json({ error: 'Terjadi kendala saat memproses permintaan Anda.', message: 'Terjadi kendala saat memproses permintaan Anda.' }, 500)
 }
 
 export const notFoundHandler = (c: Context) => {
