@@ -147,16 +147,17 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
   return c.json(responseData)
 })
 
-posts.get('/preview/:id', rateLimit(100, 60, 'preview_posts'), async (c) => {
-  const id = c.req.param('id')
+posts.get('/preview/:identifier', rateLimit(100, 60, 'preview_posts'), async (c) => {
+  const identifier = c.req.param('identifier')
   const token = c.req.query('token')
 
   if (!token) throw new HTTPException(401, { message: 'Token pratinjau tidak valid atau tidak ditemukan.' })
 
+  let payload;
   try {
-    const payload = await verify(token, c.env.JWT_SECRET, 'HS256')
-    if (!payload || payload.type !== 'preview' || payload.postId !== id) {
-      throw new Error('Invalid token')
+    payload = await verify(token, c.env.JWT_SECRET, 'HS256')
+    if (!payload || payload.type !== 'preview') {
+      throw new Error('Invalid token type')
     }
   } catch (e) {
     throw new HTTPException(401, { message: 'Sesi pratinjau kedaluwarsa atau tidak valid.' })
@@ -164,10 +165,15 @@ posts.get('/preview/:id', rateLimit(100, 60, 'preview_posts'), async (c) => {
 
   // Ambil post tanpa memperhatikan status (draft/published)
   const post = await c.env.DB.prepare(
-    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, word_count, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE id = ?"
-  ).bind(id).first()
+    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, word_count, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE id = ? OR slug = ?"
+  ).bind(identifier, identifier).first()
 
   if (!post) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
+
+  // Verify that the token corresponds to THIS post
+  if (post.id !== payload.postId) {
+     throw new HTTPException(401, { message: 'Token tidak cocok dengan artikel ini.' })
+  }
 
   let parsedSecondary = []
   if (post.secondary_keywords) {

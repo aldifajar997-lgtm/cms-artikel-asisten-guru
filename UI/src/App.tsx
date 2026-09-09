@@ -6,6 +6,7 @@ import { ArticleList } from './components/ArticleList';
 import { CategorySettings } from './components/CategorySettings';
 import { ProfileSettings } from './components/ProfileSettings';
 import { UserSettings } from './components/UserSettings';
+import { Glosarium } from './components/Glosarium';
 import { generateSlug } from './utils/seoAnalyzer';
 import { Login } from './components/Login';
 import { ForgotPassword } from './components/ForgotPassword';
@@ -670,6 +671,10 @@ export default function App() {
 
                   {activeTab === 'pengaturan-user' && (
                     <UserSettings />
+                  )}
+
+                  {activeTab === 'glosarium' && (
+                    <Glosarium />
                   )}
                 </div>
               </div>

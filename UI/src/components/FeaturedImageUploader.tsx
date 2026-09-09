@@ -82,6 +82,7 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
               </div>
               <p className="text-sm font-bold text-slate-700">Unggah Cover Artikel</p>
               <p className="text-xs text-slate-400 mt-1">JPG, PNG, atau WEBP (Max 5MB)</p>
+              <p className="text-[11px] text-slate-500 mt-2 font-medium bg-slate-200/50 px-2.5 py-1 rounded-md">Ukuran ideal: 1200 x 630 px (16:9)</p>
             </>
           )}
           {error && <p className="text-xs text-rose-500 mt-2 font-medium">{error}</p>}

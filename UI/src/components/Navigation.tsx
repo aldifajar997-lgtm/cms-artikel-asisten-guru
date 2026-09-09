@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut } from 'lucide-react';
+import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user';
+export type ActiveTab = 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -172,6 +172,25 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Sleek User Profile Card */}
         <div className="p-4 border-t border-slate-100 space-y-2">
+          <button
+            onClick={() => handleSelect('glosarium')}
+            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left shadow-sm mb-2 ${
+              activeTab === 'glosarium'
+                ? 'bg-teal-50 border border-teal-200 text-teal-700'
+                : 'bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300'
+            }`}
+            title="Buka Glosarium SEO"
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              activeTab === 'glosarium' ? 'bg-teal-200/50 text-teal-700' : 'bg-teal-50 text-teal-600'
+            }`}>
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm font-semibold ${activeTab === 'glosarium' ? 'text-teal-800' : 'text-slate-700'}`}>Glosarium SEO</p>
+            </div>
+          </button>
+
           <button
             onClick={() => handleSelect('pengaturan-profile')}
             className="w-full flex items-center gap-3 bg-slate-50 hover:bg-slate-100/80 p-3 rounded-2xl transition-all text-left cursor-pointer border border-transparent hover:border-slate-200/60"
