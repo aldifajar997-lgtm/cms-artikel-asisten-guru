@@ -288,14 +288,15 @@ users.post('/me/avatar', rateLimit(5, 60, 'avatar_upload'), async (c) => {
 
 const createUserSchema = z.object({
   email: z.string().email().trim().toLowerCase(),
-  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v)
+  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v),
+  role_id: z.string().optional()
 })
 
 users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserSchema), async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat melakukan aksi ini.' })
 
-  const { email, name } = c.req.valid('json')
+  const { email, name, role_id } = c.req.valid('json')
 
   // SECURITY PATCH: Cegah DoS pada Super Admin dengan memblokir invitation ke email sistem
   if (c.env.SUPER_ADMIN_EMAIL && email === c.env.SUPER_ADMIN_EMAIL.toLowerCase()) {
@@ -307,23 +308,33 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
   let userId = ''
   let userName = name
 
+  let assignedRoleId = role_id
+  if (!assignedRoleId) {
+    const defaultRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
+    if (!defaultRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
+    assignedRoleId = defaultRole.id as string
+  } else {
+    const roleExists = await c.env.DB.prepare('SELECT id FROM roles WHERE id = ?').bind(assignedRoleId).first()
+    if (!roleExists) throw new HTTPException(400, { message: 'Role tidak ditemukan.' })
+  }
+
   if (exists) {
     userId = exists.id as string
     userName = (exists.name as string) || name
-    // Jika user sudah ada, kita anggap sebagai aksi "Resend Invitation / Reset Password"
+    // Jika user sudah ada, update rolenya juga sesuai yang diminta
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM user_roles WHERE user_id = ?').bind(userId),
+      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, assignedRoleId)
+    ])
   } else {
     userId = crypto.randomUUID()
     // Default ke random string kuat karena password di-set melalui email setup
     const randomTempPassword = crypto.randomUUID() + crypto.randomUUID()
     const hashed = await hashPassword(randomTempPassword)
 
-    // Default role 'Writer'
-    const defaultRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
-    if (!defaultRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
-
     await c.env.DB.batch([
       c.env.DB.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').bind(userId, email, hashed, name || null),
-      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, defaultRole.id)
+      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, assignedRoleId)
     ])
   }
 

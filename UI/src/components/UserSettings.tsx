@@ -15,7 +15,7 @@ export const UserSettings: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserAdmin | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState({ name: '', email: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', role_id: '' });
   const [resetPassword, setResetPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,7 +51,7 @@ export const UserSettings: React.FC = () => {
     try {
       await api.post('/users', formData);
       setIsAddModalOpen(false);
-      setFormData({ name: '', email: '' });
+      setFormData({ name: '', email: '', role_id: '' });
       fetchData(false); // Refresh list in background
     } catch (err) {
       alert(handleApiError(err));
@@ -113,8 +113,8 @@ export const UserSettings: React.FC = () => {
     
     try {
       await api.put(`/users/${user.id}/role`, { role_id: roleId });
-      // Background reload is safer to sync any other side effects from backend without spinner
-      fetchData(false);
+      // Removed fetchData(false) here to prevent D1 read replica stale data 
+      // from overwriting our optimistic update instantly.
     } catch (err) {
       alert(handleApiError(err));
       // Revert on failure
@@ -272,6 +272,19 @@ export const UserSettings: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-2">
                   Penulis akan menerima email untuk membuat password mereka sendiri.
                 </p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Role Awal</label>
+                <select
+                  value={formData.role_id}
+                  onChange={(e) => setFormData({...formData, role_id: e.target.value})}
+                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
+                >
+                  <option value="">Otomatis (Writer)</option>
+                  {roles.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
               </div>
               
               <div className="flex items-center justify-end gap-3 pt-4">
