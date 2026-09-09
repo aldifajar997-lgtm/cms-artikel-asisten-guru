@@ -177,6 +177,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
           const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
           const origin = baseUrl.replace(/\/api\/?$/, '');
           data.result[0].url = `${origin}${data.result[0].url}`;
+
         }
 
         uploadHandler(data);

@@ -39,7 +39,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
 
   // Normalisasi Cache Key untuk mencegah Cache Key Poisoning (Storage Exhaustion Attack)
   const cacheKey = `cache:posts_list:${limit}:${offset}:${categoryId || 'any'}:${authorIdParam || 'any'}:${sort || 'newest'}:${safeSearchQueryRaw || 'none'}:${cursor || 'none'}`
-  
+
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
     return c.json(cachedData)
@@ -64,7 +64,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
     whereClauses.push("p.category_id = ?")
     params.push(categoryId)
   }
-  
+
   if (authorIdParam) {
     whereClauses.push("p.author_id = ?")
     params.push(authorIdParam)
@@ -81,15 +81,15 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   }
 
   let finalQuery = `${baseQuery} WHERE ${whereClauses.join(' AND ')}`
-  
+
   if (sort === 'popular') {
     finalQuery += ' ORDER BY p.view_count DESC, p.published_at DESC LIMIT ?'
   } else {
     finalQuery += ' ORDER BY p.published_at DESC LIMIT ?'
   }
-  
+
   params.push(limit)
-  
+
   if (!cursor) {
     finalQuery += " OFFSET ?"
     params.push(offset)
@@ -105,7 +105,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   const nextCursor = formatted.length === limit ? (sort === 'popular' ? formatted[formatted.length - 1].view_count : formatted[formatted.length - 1].published_at) : null
 
   const responseData = { data: formatted, limit, offset, next_cursor: nextCursor }
-  
+
   c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 60 }))
 
   return c.json(responseData)
@@ -114,7 +114,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
 posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
   const slug = c.req.param('slug')
   const tz = c.req.query('timezone') || 'Asia/Jakarta'
-  
+
   const cacheKey = `cache:post_slug:${slug}`
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
@@ -141,7 +141,7 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
   ).bind(post.id).all()
 
   const responseData = { ...formatted, tags: tags.results }
-  
+
   c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 3600 }))
 
   return c.json(responseData)
@@ -150,7 +150,7 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
 posts.get('/preview/:id', rateLimit(100, 60, 'preview_posts'), async (c) => {
   const id = c.req.param('id')
   const token = c.req.query('token')
-  
+
   if (!token) throw new HTTPException(401, { message: 'Token pratinjau tidak valid atau tidak ditemukan.' })
 
   try {
@@ -171,7 +171,7 @@ posts.get('/preview/:id', rateLimit(100, 60, 'preview_posts'), async (c) => {
 
   let parsedSecondary = []
   if (post.secondary_keywords) {
-    try { parsedSecondary = JSON.parse(post.secondary_keywords as string) } catch {}
+    try { parsedSecondary = JSON.parse(post.secondary_keywords as string) } catch { }
   }
 
   const formatted = {
@@ -191,7 +191,7 @@ posts.get('/preview/:id', rateLimit(100, 60, 'preview_posts'), async (c) => {
 
 posts.post('/:slug/view', rateLimit(1, 60, (c) => `post_view_${c.req.param('slug')}`), async (c) => {
   const slug = c.req.param('slug')
-  
+
   const result = await c.env.DB.prepare(
     "UPDATE posts SET view_count = COALESCE(view_count, 0) + 1 WHERE slug = ? AND status = 'published'"
   ).bind(slug).run()
@@ -249,12 +249,12 @@ posts.get('/admin/stats', async (c) => {
     FROM posts
   `
   const params: any[] = []
-  
+
   if (user.role !== 'super_admin') {
     query += ' WHERE author_id = ?'
     params.push(user.id)
   }
-  
+
   const result = await c.env.DB.prepare(query).bind(...params).first()
   return c.json({ data: result })
 })
@@ -288,36 +288,36 @@ posts.get('/admin/all', async (c) => {
   const status = c.req.query('status')
   const sort = c.req.query('sort')
 
-  let query = "SELECT posts.id, posts.slug, posts.title, posts.excerpt, posts.featured_image, posts.featured_image_alt, posts.featured_image_caption, posts.meta_title, posts.meta_description, posts.focus_keyword, posts.secondary_keywords, posts.seo_score, posts.word_count, posts.reading_time_minutes, posts.view_count, posts.author_id, posts.category_id, posts.status, posts.published_at, posts.created_at, posts.updated_at, users.name as author_name, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts LEFT JOIN users ON posts.author_id = users.id"
+  let query = "SELECT posts.id, posts.slug, posts.title, posts.excerpt, posts.content, posts.featured_image, posts.featured_image_alt, posts.featured_image_caption, posts.meta_title, posts.meta_description, posts.focus_keyword, posts.secondary_keywords, posts.seo_score, posts.word_count, posts.reading_time_minutes, posts.view_count, posts.author_id, posts.category_id, posts.status, posts.published_at, posts.created_at, posts.updated_at, users.name as author_name, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts LEFT JOIN users ON posts.author_id = users.id"
   const params: any[] = []
   const conditions: string[] = []
-  
+
   if (user.role !== 'super_admin') {
     conditions.push('posts.author_id = ?')
     params.push(user.id)
   }
-  
+
   if (search) {
     conditions.push('(posts.title LIKE ? OR posts.focus_keyword LIKE ? OR posts.excerpt LIKE ?)')
     const searchPattern = `%${search}%`
     params.push(searchPattern, searchPattern, searchPattern)
   }
-  
+
   if (categoryId && categoryId !== 'all') {
     conditions.push('posts.category_id = ?')
     params.push(categoryId)
   }
-  
+
   if (status && status !== 'all') {
     const safeStatus = ['draft', 'published'].includes(status as string) ? status : 'draft'
     conditions.push('posts.status = ?')
     params.push(safeStatus)
   }
-  
+
   if (conditions.length > 0) {
     query += ' WHERE ' + conditions.join(' AND ')
   }
-  
+
   if (sort === 'oldest') {
     query += ' ORDER BY posts.created_at ASC'
   } else if (sort === 'score') {
@@ -329,12 +329,33 @@ posts.get('/admin/all', async (c) => {
   } else {
     query += ' ORDER BY posts.created_at DESC'
   }
-  
+
   query += ' LIMIT ? OFFSET ?'
   params.push(limit, offset)
-  
+
   const results = await c.env.DB.prepare(query).bind(...params).all()
   return c.json({ data: results.results, limit, offset })
+})
+
+posts.get('/admin/:id', requirePermission('edit_post'), async (c) => {
+  const targetId = c.req.param('id')
+  const user = c.get('user')
+
+  let query = 'SELECT posts.*, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts WHERE id = ?'
+  const params: any[] = [targetId]
+
+  if (user.role !== 'super_admin') {
+    query += ' AND author_id = ?'
+    params.push(user.id)
+  }
+
+  const post = await c.env.DB.prepare(query).bind(...params).first()
+
+  if (!post) {
+    throw new HTTPException(404, { message: 'Artikel tidak ditemukan atau Anda tidak berhak mengaksesnya.' })
+  }
+
+  return c.json({ data: post })
 })
 
 posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'), zValidator('json', postSchema), async (c) => {
@@ -391,7 +412,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   // Verifikasi Ownership jika bukan super_admin
   const existing = await c.env.DB.prepare('SELECT author_id, slug FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
-  
+
   if (user.role !== 'super_admin') {
     if (existing.author_id !== user.id) throw new HTTPException(403, { message: 'Anda tidak berhak mengedit artikel milik orang lain.' })
   }
@@ -431,7 +452,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
     }
 
     await c.env.DB.batch(stmts)
-    
+
     // Invalidasi cache KV
     if (existing && existing.slug) {
       c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))
@@ -464,11 +485,11 @@ posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_w
   }
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(targetId).run()
-  
+
   if (existing.slug) {
     c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))
   }
-  
+
   return c.json({ message: 'Artikel berhasil dihapus.' })
 })
 

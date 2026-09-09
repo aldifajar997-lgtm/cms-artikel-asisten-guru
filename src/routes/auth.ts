@@ -14,7 +14,7 @@ import { getSafeFrontendUrl } from '../utils/url'
 const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 const loginSchema = z.object({
-  email: z.string().email('Format email tidak valid'),
+  email: z.string().email('Format email tidak valid').trim().toLowerCase(),
   password: z.string().min(1, 'Password tidak boleh kosong'),
   'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
 })
@@ -311,7 +311,7 @@ auth.post('/logout', authMiddleware, async (c) => {
 })
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email('Format email tidak valid'),
+  email: z.string().email('Format email tidak valid').trim().toLowerCase(),
   'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
 })
 
@@ -339,6 +339,7 @@ auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json'
 
   if (user && user.is_active) {
     const token = crypto.randomUUID()
+    const hashedToken = await hashToken(token)
     
     // Hapus token reset sebelumnya jika ada (mencegah penumpukan)
     await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(user.id).run()
@@ -346,7 +347,7 @@ auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json'
     await c.env.DB.prepare(`
       INSERT INTO password_resets (id, user_id, token, expires_at)
       VALUES (?, ?, ?, datetime('now', '+5 minutes'))
-    `).bind(crypto.randomUUID(), user.id, token).run()
+    `).bind(crypto.randomUUID(), user.id, hashedToken).run()
 
     if (c.env.BREVO_API_KEY) {
       const frontendUrl = getSafeFrontendUrl(c.env.FRONTEND_URL)
@@ -412,9 +413,11 @@ auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', 
     throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
   }
 
+  const hashedInputToken = await hashToken(token)
+
   const resetRecord = await c.env.DB.prepare(
     'SELECT user_id FROM password_resets WHERE token = ? AND expires_at > datetime("now")'
-  ).bind(token).first<{user_id: string}>()
+  ).bind(hashedInputToken).first<{user_id: string}>()
 
   if (!resetRecord) {
     throw new HTTPException(400, { message: 'Token tidak valid atau sudah kadaluwarsa.' })
@@ -431,7 +434,7 @@ auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', 
 
   await c.env.DB.prepare(
     'DELETE FROM password_resets WHERE token = ?'
-  ).bind(token).run()
+  ).bind(hashedInputToken).run()
 
   return c.json({ message: 'Password berhasil diubah. Silakan login dengan password baru.' })
 })

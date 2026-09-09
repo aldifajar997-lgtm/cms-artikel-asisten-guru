@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserAdmin, Role } from '../types';
 import api, { handleApiError } from '../utils/api';
-import { Plus, Search, MoreVertical, Edit2, Lock, Shield, UserX, UserCheck, Loader2 } from 'lucide-react';
+import { Plus, Search, MoreVertical, Edit2, Lock, Shield, UserX, UserCheck, Loader2, Mail } from 'lucide-react';
 
 export const UserSettings: React.FC = () => {
   const [users, setUsers] = useState<UserAdmin[]>([]);
@@ -15,7 +15,7 @@ export const UserSettings: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserAdmin | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ name: '', email: '' });
   const [resetPassword, setResetPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,7 +51,7 @@ export const UserSettings: React.FC = () => {
     try {
       await api.post('/users', formData);
       setIsAddModalOpen(false);
-      setFormData({ name: '', email: '', password: '' });
+      setFormData({ name: '', email: '' });
       fetchData(false); // Refresh list in background
     } catch (err) {
       alert(handleApiError(err));
@@ -73,6 +73,17 @@ export const UserSettings: React.FC = () => {
       alert(handleApiError(err));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendInvite = async (user: UserAdmin) => {
+    if (!confirm(`Kirim ulang email undangan (dan link reset sandi) ke ${user.email}?`)) return;
+    
+    try {
+      await api.post('/users', { name: user.name || '', email: user.email });
+      alert(`Email undangan berhasil dikirim ulang ke ${user.email}`);
+    } catch (err) {
+      alert(handleApiError(err));
     }
   };
 
@@ -162,7 +173,7 @@ export const UserSettings: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold overflow-hidden shrink-0">
                         {user.avatar_url ? (
-                          <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
+                          <img src={user.avatar_url.startsWith('http') ? user.avatar_url : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${user.avatar_url}`} alt="" className="w-full h-full object-cover" />
                         ) : (
                           (user.name || user.email).charAt(0).toUpperCase()
                         )}
@@ -205,6 +216,13 @@ export const UserSettings: React.FC = () => {
                         className="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                       >
                         <Lock className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleResendInvite(user)}
+                        title="Kirim Ulang Undangan"
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        <Mail className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
@@ -251,20 +269,8 @@ export const UserSettings: React.FC = () => {
                   className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
                   placeholder="john@example.com"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Password Sementara</label>
-                <input
-                  required
-                  type="text"
-                  value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
-                  placeholder="Minimal 6 karakter"
-                  minLength={6}
-                />
                 <p className="text-xs text-slate-500 mt-2">
-                  Berikan password ini kepada penulis. Mereka dapat mengubahnya nanti.
+                  Penulis akan menerima email untuk membuat password mereka sendiri.
                 </p>
               </div>
               

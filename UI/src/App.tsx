@@ -88,6 +88,11 @@ export default function App() {
     try {
       const postsRes = await api.get('/posts/admin/all?' + queryParams.toString());
       if (postsRes.data?.data) {
+        const safeParse = (val: any) => {
+          if (!val) return [];
+          try { return JSON.parse(val); } catch (e) { return []; }
+        };
+
         const fetchedArticles = postsRes.data.data.map((p: any) => ({
           id: p.id,
           slug: p.slug,
@@ -96,7 +101,7 @@ export default function App() {
           content: p.content || '',
           categoryId: p.category_id || '',
           focusKeyword: p.focus_keyword || '',
-          secondaryKeywords: p.secondary_keywords ? JSON.parse(p.secondary_keywords) : [],
+          secondaryKeywords: safeParse(p.secondary_keywords),
           metaTitle: p.meta_title || '',
           metaDescription: p.meta_description || '',
           status: p.status,
@@ -107,7 +112,7 @@ export default function App() {
           featuredImage: p.featured_image || '',
           featuredImageAlt: p.featured_image_alt || '',
           featuredImageCaption: p.featured_image_caption || '',
-          tagIds: p.tag_ids ? JSON.parse(p.tag_ids) : [],
+          tagIds: safeParse(p.tag_ids),
           createdAt: p.created_at || new Date().toISOString(),
           updatedAt: p.updated_at || new Date().toISOString(),
           authorName: p.author_name || undefined
@@ -164,12 +169,19 @@ export default function App() {
   const fetchProfileAndData = async () => {
     try {
       const profileRes = await api.get('/users/me');
+      let finalAvatarUrl = profileRes.data.avatar_url ?? '';
+      if (finalAvatarUrl && finalAvatarUrl.startsWith('/api/')) {
+        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
+        const origin = baseUrl.replace(/\/api\/?$/, '');
+        finalAvatarUrl = `${origin}${finalAvatarUrl}`;
+      }
+
       setProfile(prev => ({
         ...prev,
         name: profileRes.data.name ?? prev.name,
         email: profileRes.data.email ?? prev.email,
         role: profileRes.data.role ?? prev.role,
-        avatarUrl: profileRes.data.avatar_url ?? '',
+        avatarUrl: finalAvatarUrl,
         bio: profileRes.data.bio ?? '',
         portfolioUrl: profileRes.data.portfolio_url ?? '',
         targetMinWords: profileRes.data.target_min_words ?? 0,
@@ -264,7 +276,8 @@ export default function App() {
     try {
       const res = await api.get(`/posts/admin/preview-token/${article.id}`);
       const token = res.data.data;
-      window.open(`${frontendUrl}/blog/preview/${article.id}?token=${token}`, '_blank');
+      // Pass the slug to the frontend instead of the ID so the Next.js/Frontend routing doesn't say "unidentified slug"
+      window.open(`${frontendUrl}/blog/preview/${article.slug}?token=${token}`, '_blank');
     } catch (err: any) {
       console.error('Gagal membuat preview token:', err);
       alert('Gagal membuat tautan pratinjau. ' + handleApiError(err));
@@ -350,22 +363,45 @@ export default function App() {
   };
 
   // Handle Select Article from List
-  const handleSelectArticleFromList = (article: Article) => {
+  const handleSelectArticleFromList = async (article: Article) => {
     if (activeTab === 'buat-artikel' && hasUnsavedChanges) {
       if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
     }
-    setCurrentArticle(article);
+
+    try {
+      const res = await api.get(`/posts/admin/${article.id}`);
+      if (res.data?.data) {
+        const p = res.data.data;
+        const fullArticle: Article = {
+          ...article,
+          content: p.content || '',
+          tagIds: p.tag_ids ? JSON.parse(p.tag_ids) : article.tagIds,
+        };
+        setCurrentArticle(fullArticle);
+      } else {
+        setCurrentArticle(article);
+      }
+    } catch (err) {
+      console.error('Gagal mengambil detail artikel:', err);
+      alert('Gagal mengambil detail artikel. Terbuka dengan konten kosong.');
+      setCurrentArticle(article);
+    }
+
     setActiveTab('buat-artikel');
   };
 
   // Handle Duplicate Article
   const handleDuplicateArticle = async (article: Article) => {
     try {
+      // Ambil konten penuh terlebih dahulu agar tidak menduplikasi artikel kosong
+      const detailRes = await api.get(`/posts/admin/${article.id}`);
+      const fullContent = detailRes.data?.data?.content || article.content || '';
+
       const duplicatedPayload = {
         title: `${article.title} (Copy)`,
         slug: `${article.slug}-copy`,
         excerpt: article.excerpt,
-        content: article.content,
+        content: fullContent,
         category_id: article.categoryId,
         focus_keyword: article.focusKeyword,
         secondary_keywords: article.secondaryKeywords,
