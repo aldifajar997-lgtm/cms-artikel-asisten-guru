@@ -208,6 +208,13 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
     setSecondaryKeywords(secondaryKeywords.filter((kw) => kw !== kwToRemove));
   };
 
+  const excerptFallback = (html: string) => {
+    const tmp = document.createElement('DIV');
+    tmp.innerHTML = html;
+    const text = tmp.textContent || tmp.innerText || '';
+    return text.length > 150 ? text.substring(0, 150) + '...' : text;
+  };
+
   const triggerSave = async (targetStatus: ArticleStatus = status): Promise<Article | null> => {
     if (!title.trim()) {
       alert('Judul artikel wajib diisi!');

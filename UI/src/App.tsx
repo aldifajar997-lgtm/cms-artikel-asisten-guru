@@ -6,6 +6,7 @@ import { ArticleList } from './components/ArticleList';
 import { CategorySettings } from './components/CategorySettings';
 import { ProfileSettings } from './components/ProfileSettings';
 import { UserSettings } from './components/UserSettings';
+import { SiteSettings } from './components/SiteSettings';
 import { Glosarium } from './components/Glosarium';
 import { generateSlug } from './utils/seoAnalyzer';
 import { Login } from './components/Login';
@@ -671,6 +672,10 @@ export default function App() {
 
                   {activeTab === 'pengaturan-user' && (
                     <UserSettings />
+                  )}
+
+                  {activeTab === 'pengaturan-situs' && (
+                    <SiteSettings />
                   )}
 
                   {activeTab === 'glosarium' && (

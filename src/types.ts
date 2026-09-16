@@ -6,6 +6,7 @@ export type Bindings = {
   SUPER_ADMIN_EMAIL?: string
   SUPER_ADMIN_PASSWORD_HASH?: string
   FRONTEND_URL?: string
+  HUB_URL?: string
   BREVO_API_KEY?: string
   ALLOWED_ORIGINS?: string // Daftar origin yang diizinkan, dipisah koma
   TURNSTILE_SECRET?: string

@@ -10,22 +10,29 @@ export const rateLimit = (limit: number, windowSecs: number, prefix: string | ((
     const ip = c.req.header('CF-Connecting-IP') || 'unknown'
 
     // Fixed window: masukkan bucket waktu ke key sehingga
-    // setiap window punya counter terpisah (fix M3: sliding window TTL)
-    // dan mengurangi dampak race condition TOCTOU (fix C2)
+    // setiap window punya counter terpisah
     const windowBucket = Math.floor(Date.now() / (windowSecs * 1000))
     const prefixValue = typeof prefix === 'function' ? prefix(c) : prefix
     const key = `${prefixValue}:${ip}:${windowBucket}`
 
-    const current = await c.env.KV.get(key)
-    const count = current ? parseInt(current) : 0
+    try {
+      const current = await c.env.KV.get(key)
+      const count = current ? parseInt(current) : 0
 
-    if (count >= limit) {
-      throw new HTTPException(429, { message: 'Terlalu banyak percobaan. Silakan tunggu beberapa saat.' })
+      if (count >= limit) {
+        throw new HTTPException(429, { message: 'Terlalu banyak percobaan. Silakan tunggu beberapa saat.' })
+      }
+
+      await c.env.KV.put(key, (count + 1).toString(), { expirationTtl: windowSecs * 2 })
+    } catch (e) {
+      // Jika errornya dari HTTPException (berarti 429), lemparkan kembali
+      if (e instanceof HTTPException) {
+        throw e
+      }
+      // Selain itu (misal KV limit tercapai / error jaringan), biarkan request lewat (Fail Open)
+      console.error('Rate limit KV error:', e)
     }
 
-    // TTL = 2x window agar key pasti expire setelah window selesai,
-    // tapi tidak reset window karena key berubah setiap bucket
-    await c.env.KV.put(key, (count + 1).toString(), { expirationTtl: windowSecs * 2 })
     await next()
   }
 }
