@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen } from 'lucide-react';
+import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium';
+export type ActiveTab = 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -42,6 +42,15 @@ export const Navigation: React.FC<NavigationProps> = ({
       id: 'pengaturan-user' as ActiveTab,
       label: 'Pengaturan User',
       icon: Users,
+    });
+  }
+
+  // Pengaturan Situs (logo, judul, deskripsi) — untuk super_admin dan Admin
+  if (profile.role === 'super_admin' || profile.role === 'Admin') {
+    navItems.push({
+      id: 'pengaturan-situs' as ActiveTab,
+      label: 'Pengaturan Situs',
+      icon: Settings,
     });
   }
 

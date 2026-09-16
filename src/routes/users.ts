@@ -58,6 +58,7 @@ users.get('/me', async (c) => {
   if (dbUser) {
     if (dbUser.id === 'super_admin') {
       dbUser.role = 'super_admin'
+      // If email is missing, fallback to env variable if possible, though it shouldn't be missing now
     }
     return c.json(dbUser)
   }
@@ -288,15 +289,14 @@ users.post('/me/avatar', rateLimit(5, 60, 'avatar_upload'), async (c) => {
 
 const createUserSchema = z.object({
   email: z.string().email().trim().toLowerCase(),
-  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v),
-  role_id: z.string().optional()
+  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v)
 })
 
 users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserSchema), async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat melakukan aksi ini.' })
 
-  const { email, name, role_id } = c.req.valid('json')
+  const { email, name } = c.req.valid('json')
 
   // SECURITY PATCH: Cegah DoS pada Super Admin dengan memblokir invitation ke email sistem
   if (c.env.SUPER_ADMIN_EMAIL && email === c.env.SUPER_ADMIN_EMAIL.toLowerCase()) {
@@ -308,24 +308,15 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
   let userId = ''
   let userName = name
 
-  let assignedRoleId = role_id
-  if (!assignedRoleId) {
-    const defaultRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
-    if (!defaultRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
-    assignedRoleId = defaultRole.id as string
-  } else {
-    const roleExists = await c.env.DB.prepare('SELECT id FROM roles WHERE id = ?').bind(assignedRoleId).first()
-    if (!roleExists) throw new HTTPException(400, { message: 'Role tidak ditemukan.' })
-  }
+  // Invitation selalu sebagai Writer — upgrade role dilakukan terpisah oleh Super Admin
+  const writerRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
+  if (!writerRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
+  const assignedRoleId = writerRole.id as string
 
   if (exists) {
     userId = exists.id as string
     userName = (exists.name as string) || name
-    // Jika user sudah ada, update rolenya juga sesuai yang diminta
-    await c.env.DB.batch([
-      c.env.DB.prepare('DELETE FROM user_roles WHERE user_id = ?').bind(userId),
-      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, assignedRoleId)
-    ])
+    // User sudah ada — JANGAN ubah rolenya. Hanya kirim ulang email setup password.
   } else {
     userId = crypto.randomUUID()
     // Default ke random string kuat karena password di-set melalui email setup
@@ -370,7 +361,8 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
           params: {
             NAME: userName || 'Bapak/Ibu',
             EMAIL: email,
-            SETUP_LINK: setupLink
+            SETUP_LINK: setupLink,
+            ROLE: 'Writer'
           }
         })
       })
@@ -418,6 +410,9 @@ users.put('/:id/reset-password', zValidator('json', resetPasswordSchema), async 
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat mereset password.' })
 
   const targetId = c.req.param('id')
+  if (targetId === 'super_admin') {
+    throw new HTTPException(403, { message: 'Password Super Admin sistem tidak dapat diubah melalui endpoint ini.' })
+  }
   const { new_password } = c.req.valid('json')
 
   const hashed = await hashPassword(new_password)
@@ -455,6 +450,9 @@ users.put('/:id/role', rateLimit(30, 60, 'assign_role'), zValidator('json', assi
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat mengubah role.' })
 
   const targetId = c.req.param('id')
+  if (targetId === 'super_admin') {
+    throw new HTTPException(403, { message: 'Role Super Admin sistem tidak dapat diubah.' })
+  }
   const { role_id } = c.req.valid('json')
 
   // Validasi role yang di-assign benar-benar ada di database
@@ -480,6 +478,9 @@ users.put('/:id/status', rateLimit(30, 60, 'update_status'), zValidator('json', 
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat mengubah status.' })
 
   const targetId = c.req.param('id')
+  if (targetId === 'super_admin') {
+    throw new HTTPException(403, { message: 'Status Super Admin sistem tidak dapat diubah.' })
+  }
   const { is_active } = c.req.valid('json')
   const isActiveInt = is_active ? 1 : 0
 

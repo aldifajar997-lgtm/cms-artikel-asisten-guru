@@ -15,7 +15,7 @@ export const UserSettings: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserAdmin | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState({ name: '', email: '', role_id: '' });
+  const [formData, setFormData] = useState({ name: '', email: '' });
   const [resetPassword, setResetPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,7 +51,7 @@ export const UserSettings: React.FC = () => {
     try {
       await api.post('/users', formData);
       setIsAddModalOpen(false);
-      setFormData({ name: '', email: '', role_id: '' });
+      setFormData({ name: '', email: '' });
       fetchData(false); // Refresh list in background
     } catch (err) {
       alert(handleApiError(err));
@@ -189,6 +189,7 @@ export const UserSettings: React.FC = () => {
                       className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
                       value={roles.find(r => r.name === user.role)?.id || ''}
                       onChange={(e) => handleChangeRole(user, e.target.value)}
+                      disabled={user.id === 'super_admin'}
                     >
                       <option value="" disabled>Pilih Role...</option>
                       {roles.map(role => (
@@ -203,27 +204,33 @@ export const UserSettings: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => handleToggleStatus(user)}
-                        title={user.is_active ? 'Nonaktifkan' : 'Aktifkan'}
-                        className={`p-2 rounded-lg transition-colors ${user.is_active ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
-                      >
-                        {user.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                      </button>
-                      <button
-                        onClick={() => { setSelectedUser(user); setIsResetModalOpen(true); }}
-                        title="Reset Password"
-                        className="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                      >
-                        <Lock className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleResendInvite(user)}
-                        title="Kirim Ulang Undangan"
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Mail className="w-4 h-4" />
-                      </button>
+                      {user.id !== 'super_admin' ? (
+                        <>
+                          <button
+                            onClick={() => handleToggleStatus(user)}
+                            title={user.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                            className={`p-2 rounded-lg transition-colors ${user.is_active ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                          >
+                            {user.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                          </button>
+                          <button
+                            onClick={() => { setSelectedUser(user); setIsResetModalOpen(true); }}
+                            title="Reset Password"
+                            className="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                          >
+                            <Lock className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleResendInvite(user)}
+                            title="Kirim Ulang Undangan"
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          >
+                            <Mail className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400 italic">Sistem</span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -273,20 +280,6 @@ export const UserSettings: React.FC = () => {
                   Penulis akan menerima email untuk membuat password mereka sendiri.
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Role Awal</label>
-                <select
-                  value={formData.role_id}
-                  onChange={(e) => setFormData({...formData, role_id: e.target.value})}
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
-                >
-                  <option value="">Otomatis (Writer)</option>
-                  {roles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
-              
               <div className="flex items-center justify-end gap-3 pt-4">
                 <button
                   type="button"

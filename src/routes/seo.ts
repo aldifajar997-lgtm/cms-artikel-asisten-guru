@@ -32,7 +32,7 @@ seo.get('/', (c) => {
 
 // --- SITEMAP INDEX (fix H2: pagination untuk >1000 konten) ---
 seo.get('/sitemap.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
-  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.FRONTEND_URL)) // fix H5: escape frontendUrl
+  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL))
 
   try {
     const postCount = await c.env.DB.prepare(
@@ -67,11 +67,18 @@ seo.get('/sitemap.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
 })
 
 // --- SUB-SITEMAP: Posts (paginated) ---
-seo.get('/sitemap-posts-:page.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
-  const pageRaw = parseInt(c.req.param('page') || '1')
+seo.get('/sitemap-posts-*', rateLimit(20, 60, 'sitemap'), async (c) => {
+  const path = c.req.path
+  // Ekstrak angka dari /sitemap-posts-1.xml
+  const match = path.match(/sitemap-posts-(\d+)\.xml/)
+  if (!match) {
+    return c.text('Not found', 404)
+  }
+  
+  const pageRaw = parseInt(match[1])
   const page = isNaN(pageRaw) || pageRaw < 1 ? 1 : pageRaw
   const offset = (page - 1) * SITEMAP_PAGE_SIZE
-  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.FRONTEND_URL))
+  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL))
 
   try {
     const posts = await c.env.DB.prepare(
@@ -117,7 +124,7 @@ seo.get('/sitemap-posts-:page.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
 
 // --- SUB-SITEMAP: Categories + Tags ---
 seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
-  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.FRONTEND_URL))
+  const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL))
 
   try {
     const categories = await c.env.DB.prepare(
@@ -157,7 +164,7 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
 })
 
 seo.get('/robots.txt', rateLimit(20, 60, 'robots'), (c) => {
-  const frontendUrl = getSafeFrontendUrl(c.env.FRONTEND_URL)
+  const frontendUrl = getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL)
 
   const content = `User-agent: *
 Disallow: /api/
