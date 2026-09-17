@@ -35,3 +35,6 @@ lerna-debug.log*
 # docs & data dumps
 docs/
 *.txt
+
+# config
+wrangler.jsonc
