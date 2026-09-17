@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import api, { handleApiError } from '../utils/api';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 interface ProfileSettingsProps {
   profile: UserProfile;
@@ -35,6 +37,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   totalArticlesWritten,
   totalWordsWritten,
 }) => {
+  const { success, error: showError, warning } = useToast();
+  const { show: showConfirm } = useConfirm();
   const [formData, setFormData] = useState<UserProfile>(profile);
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -127,7 +131,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 3000);
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     } finally {
       setIsSubmittingProfile(false);
     }
@@ -138,10 +142,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
     setIsSubmittingPassword(true);
     try {
       await api.put('/users/me/password', passwordData);
-      alert('Password berhasil diperbarui! Sesi di perangkat lain (jika ada) telah dihentikan.');
+      success('Password berhasil diperbarui! Sesi di perangkat lain (jika ada) telah dihentikan.');
       setPasswordData({ old_password: '', new_password: '' });
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     } finally {
       setIsSubmittingPassword(false);
     }
@@ -251,7 +255,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                     const file = e.target.files?.[0];
                     if (file) {
                       if (file.size > 2 * 1024 * 1024) {
-                        alert('Ukuran file tidak boleh lebih dari 2MB');
+                        warning('Ukuran file tidak boleh lebih dari 2MB');
                         e.target.value = '';
                         return;
                       }
@@ -266,8 +270,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                 {(previewUrl || formData.avatarUrl) && (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('Foto akan dihapus dari form. Jangan lupa klik "Simpan Profil" di bawah untuk memanenkannya!')) {
+                    onClick={async () => {
+                      const confirmed = await showConfirm('Hapus Foto', 'Foto akan dihapus dari form. Jangan lupa klik "Simpan Profil" di bawah untuk memanenkannya!', 'Hapus', 'Batal');
+                      if (confirmed) {
                         setAvatarFile(null);
                         // FIX Bug #7: Revoke blob URL saat hapus foto
                         if (previewUrl) URL.revokeObjectURL(previewUrl);

@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { UserAdmin, Role } from '../types';
 import api, { handleApiError } from '../utils/api';
 import { Plus, Search, MoreVertical, Edit2, Lock, Shield, UserX, UserCheck, Loader2, Mail } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 export const UserSettings: React.FC = () => {
+  const { success, error: showError } = useToast();
+  const { show: showConfirm } = useConfirm();
   const [users, setUsers] = useState<UserAdmin[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,7 +58,7 @@ export const UserSettings: React.FC = () => {
       setFormData({ name: '', email: '' });
       fetchData(false); // Refresh list in background
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -68,22 +72,23 @@ export const UserSettings: React.FC = () => {
       await api.put(`/users/${selectedUser.id}/reset-password`, { new_password: resetPassword });
       setIsResetModalOpen(false);
       setResetPassword('');
-      alert('Password berhasil direset.');
+      success('Password berhasil direset.');
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleResendInvite = async (user: UserAdmin) => {
-    if (!confirm(`Kirim ulang email undangan (dan link reset sandi) ke ${user.email}?`)) return;
+    const confirmed = await showConfirm('Konfirmasi', `Kirim ulang email undangan (dan link reset sandi) ke ${user.email}?`);
+    if (!confirmed) return;
     
     try {
       await api.post('/users', { name: user.name || '', email: user.email });
-      alert(`Email undangan berhasil dikirim ulang ke ${user.email}`);
+      success(`Email undangan berhasil dikirim ulang ke ${user.email}`);
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     }
   };
 
@@ -93,13 +98,14 @@ export const UserSettings: React.FC = () => {
       ? `Aktifkan akun ${user.email}?` 
       : `Nonaktifkan akun ${user.email}? User akan langsung ter-logout dari semua perangkat.`;
       
-    if (!confirm(confirmMsg)) return;
+    const confirmed = await showConfirm('Konfirmasi', confirmMsg);
+    if (!confirmed) return;
 
     try {
       await api.put(`/users/${user.id}/status`, { is_active: newStatus });
       setUsers(users.map(u => u.id === user.id ? { ...u, is_active: newStatus ? 1 : 0 } : u));
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
     }
   };
 
@@ -116,7 +122,7 @@ export const UserSettings: React.FC = () => {
       // Removed fetchData(false) here to prevent D1 read replica stale data 
       // from overwriting our optimistic update instantly.
     } catch (err) {
-      alert(handleApiError(err));
+      showError(handleApiError(err));
       // Revert on failure
       setUsers(users.map(u => u.id === user.id ? { ...u, role: previousRole } : u));
     }

@@ -20,6 +20,7 @@ import api from '../utils/api';
 import { Article, Category, UserProfile, ArticleStatus, Tag as TagType } from '../types';
 import { calculateSEOAnalysis, generateSlug } from '../utils/seoAnalyzer';
 import { FeaturedImageUploader } from './FeaturedImageUploader';
+import { useToast } from '../context/ToastContext';
 
 interface ArticleEditorProps {
   article: Article;
@@ -65,6 +66,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
   onTagsChange,
   setHasUnsavedChanges,
 }) => {
+  const { warning, error: showError } = useToast();
   // Form states
   const [title, setTitle] = useState(article.title || '');
   const [slug, setSlug] = useState(article.slug || '');
@@ -218,7 +220,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
 
   const triggerSave = async (targetStatus: ArticleStatus = status): Promise<Article | null> => {
     if (!title.trim()) {
-      alert('Judul artikel wajib diisi!');
+      warning('Judul artikel wajib diisi!');
       return null;
     }
 
@@ -450,16 +452,23 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                   onChange={(e) => setCategoryId(e.target.value)}
                   className="font-medium text-slate-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer hover:text-teal-600 py-1"
                 >
-                  {categories.filter(c => !c.parentId).map((parentCat) => (
-                    <optgroup key={parentCat.id} label={parentCat.name}>
-                      <option value={parentCat.id}>{parentCat.name} (Umum)</option>
-                      {categories.filter(c => c.parentId === parentCat.id).map((subCat) => (
-                        <option key={subCat.id} value={subCat.id}>
-                          -- {subCat.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
+                  {categories.filter(c => !c.parentId).map((parentCat) => {
+                    const subCats = categories.filter(c => c.parentId === parentCat.id);
+                    return (
+                      <optgroup key={parentCat.id} label={parentCat.name}>
+                        {categoryId == parentCat.id && (
+                          <option value={parentCat.id}>
+                            {parentCat.name} ⚠️ (Harap Pindah ke Sub-Kategori)
+                          </option>
+                        )}
+                        {subCats.map((subCat) => (
+                          <option key={subCat.id} value={subCat.id}>
+                            -- {subCat.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
 
                 <div className="h-4 w-px bg-slate-200" />
@@ -734,18 +743,23 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                       onChange={(e) => setCategoryId(e.target.value)}
                       className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 font-medium text-slate-800"
                     >
-                      {categories.filter(c => !c.parentId).map((parentCat) => (
-                        <optgroup key={parentCat.id} label={parentCat.name}>
-                          <option value={parentCat.id}>
-                            {parentCat.name} (Utama - {parentCat.targetKeywords.length} pilar KW)
-                          </option>
-                          {categories.filter(c => c.parentId === parentCat.id).map((subCat) => (
-                            <option key={subCat.id} value={subCat.id}>
-                              -- {subCat.name} ({subCat.targetKeywords.length} pilar KW)
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
+                      {categories.filter(c => !c.parentId).map((parentCat) => {
+                        const subCats = categories.filter(c => c.parentId === parentCat.id);
+                        return (
+                          <optgroup key={parentCat.id} label={parentCat.name}>
+                            {categoryId == parentCat.id && (
+                              <option value={parentCat.id} className="text-rose-600 font-bold">
+                                {parentCat.name} ⚠️ (Harap Pindah ke Sub-Kategori)
+                              </option>
+                            )}
+                            {subCats.map((subCat) => (
+                              <option key={subCat.id} value={subCat.id}>
+                                -- {subCat.name} ({subCat.targetKeywords.length} pilar KW)
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
                     </select>
                     {currentCategory && (
                       <p className="text-[11px] text-slate-500 mt-1 leading-snug">
@@ -816,7 +830,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                                 setTagIds([...tagIds, newTag.id]);
                                 e.currentTarget.value = '';
                               } catch (err: any) {
-                                alert(err.response?.data?.message || 'Gagal menambahkan tag baru');
+                                showError(err.response?.data?.message || 'Gagal menambahkan tag baru');
                               }
                             }
                           }
