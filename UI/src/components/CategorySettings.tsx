@@ -15,6 +15,8 @@ import {
 import { Category } from '../types';
 import { generateSlug } from '../utils/seoAnalyzer';
 import { handleApiError } from '../utils/api';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 interface CategorySettingsProps {
   categories: Category[];
@@ -37,6 +39,8 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
   onDeleteCategory,
   onFilterCategoryArticles,
 }) => {
+  const { success, error: showError } = useToast();
+  const { show: showConfirm } = useConfirm();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
 
@@ -48,7 +52,6 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
   const [color, setColor] = useState('#0d9488');
   const [parentId, setParentId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const openAddModal = () => {
     setEditingCategoryId(null);
@@ -107,7 +110,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
             parentId: parentId || undefined,
             parentName: parentId ? categories.find(c => c.id === parentId)?.name : undefined,
           });
-          setSuccessMessage('Kategori berhasil diperbarui!');
+          success('Kategori berhasil diperbarui!');
         }
       } else {
         const newCategory: Category = {
@@ -122,11 +125,10 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
           articleCount: 0,
         };
         await onAddCategory(newCategory);
-        setSuccessMessage('Kategori baru berhasil ditambahkan!');
+        success('Kategori baru berhasil ditambahkan!');
       }
 
       setIsModalOpen(false);
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError(handleApiError(err));
     }
@@ -134,14 +136,6 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Toast */}
-      {successMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-2 px-4 py-3 bg-teal-900 text-white text-sm font-medium rounded-xl shadow-lg">
-          <CheckCircle2 className="w-4 h-4 text-teal-400" />
-          <span>{successMessage}</span>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -285,11 +279,12 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
                             </button>
                             <button
                               onClick={async () => {
-                                if (confirm(`Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`)) {
+                                const confirmed = await showConfirm('Hapus Kategori', `Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`, 'Hapus', 'Batal');
+                                if (confirmed) {
                                   try {
                                     await onDeleteCategory(cat.id);
                                   } catch (err: any) {
-                                    alert(handleApiError(err));
+                                    showError(handleApiError(err));
                                   }
                                 }
                               }}

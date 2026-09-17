@@ -16,8 +16,12 @@ import { ResetPassword } from './components/ResetPassword';
 import api, { setAccessToken, handleApiError } from './utils/api';
 import { Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useToast } from './context/ToastContext';
+import { useConfirm } from './context/ConfirmContext';
 
 export default function App() {
+  const { success, error: showError, warning, info } = useToast();
+  const { show: showConfirm } = useConfirm();
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
@@ -287,7 +291,7 @@ export default function App() {
       window.open(`${frontendUrl}/blog/preview/${article.slug}?token=${token}`, '_blank');
     } catch (err: any) {
       console.error('Gagal membuat preview token:', err);
-      alert('Gagal membuat tautan pratinjau. ' + handleApiError(err));
+      showError('Gagal membuat tautan pratinjau. ' + handleApiError(err));
     }
   };
 
@@ -338,7 +342,7 @@ export default function App() {
       fetchGlobalStats();
     } catch (err: any) {
       console.error('Gagal menyimpan artikel:', err);
-      alert(handleApiError(err));
+      showError(handleApiError(err));
       throw err; // So the editor can stop loading
     }
   };
@@ -373,7 +377,8 @@ export default function App() {
   // Handle Select Article from List
   const handleSelectArticleFromList = async (article: Article) => {
     if (activeTab === 'buat-artikel' && hasUnsavedChanges) {
-      if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
+      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+      if (!confirmed) return;
     }
 
     try {
@@ -415,7 +420,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Gagal mengambil detail artikel:', err);
-      alert('Gagal mengambil detail artikel. Terbuka dengan konten kosong.');
+      warning('Gagal mengambil detail artikel. Terbuka dengan konten kosong.');
       setCurrentArticle(article);
     }
 
@@ -466,19 +471,20 @@ export default function App() {
       fetchGlobalStats();
     } catch (err: any) {
       console.error('Gagal menduplikasi artikel:', err);
-      alert('Gagal menduplikasi artikel. ' + handleApiError(err));
+      showError('Gagal menduplikasi artikel. ' + handleApiError(err));
     }
   };
 
   // Handle Delete Article
   const handleDeleteArticle = async (id: string) => {
-    if (confirm('Hapus artikel ini secara permanen dari daftar?')) {
+    const confirmed = await showConfirm('Hapus Artikel', 'Hapus artikel ini secara permanen dari daftar?', 'Hapus', 'Batal');
+    if (confirmed) {
       if (!id.startsWith('art-')) {
         try {
           await api.delete(`/posts/${id}`);
         } catch (err) {
           console.error('Gagal menghapus artikel:', err);
-          alert('Gagal menghapus artikel. Silakan coba lagi.');
+          showError('Gagal menghapus artikel. Silakan coba lagi.');
           return;
         }
       }
@@ -602,15 +608,17 @@ export default function App() {
       {/* Sidebar Navigation */}
       <Navigation
         activeTab={activeTab}
-        onLogout={() => {
+        onLogout={async () => {
           if (activeTab === 'buat-artikel' && hasUnsavedChanges) {
-            if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
+            const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+            if (!confirmed) return;
           }
           handleLogout();
         }}
-        onSelectTab={(tab) => {
+        onSelectTab={async (tab) => {
           if (activeTab === 'buat-artikel' && tab !== 'buat-artikel' && hasUnsavedChanges) {
-            if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
+            const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+            if (!confirmed) return;
           }
           if (tab === 'buat-artikel' && !currentArticle) {
             handleNewArticle();
@@ -618,9 +626,10 @@ export default function App() {
             setActiveTab(tab);
           }
         }}
-        onNewArticle={() => {
+        onNewArticle={async () => {
           if (activeTab === 'buat-artikel' && hasUnsavedChanges) {
-            if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
+            const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+            if (!confirmed) return;
           }
           handleNewArticle();
         }}
@@ -648,9 +657,10 @@ export default function App() {
                   tags={tags}
                   profile={profile}
                   onSave={handleSaveArticle}
-                  onBack={() => {
+                  onBack={async () => {
                     if (hasUnsavedChanges) {
-                      if (!window.confirm('Ada perubahan yang belum disimpan. Yakin ingin keluar?')) return;
+                      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+                      if (!confirmed) return;
                     }
                     setActiveTab('list-artikel');
                   }}

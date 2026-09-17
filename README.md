@@ -89,9 +89,10 @@ API Backend dijalankan menggunakan `wrangler` yang akan menyimulasikan lingkunga
    SUPER_ADMIN_EMAIL="admin@asisten-guru.id"
    SUPER_ADMIN_PASSWORD_HASH="hash_password_di_sini"
    ```
-4. Jalankan migrasi *database* ke SQLite lokal:
+4. Jalankan migrasi *database* dan data awal (seed) ke SQLite lokal:
    ```bash
-   npx wrangler d1 execute cms-db --local --file=./schema.sql
+   npx wrangler d1 execute cms-db --local --file=./migrasi/schema.sql
+   npx wrangler d1 execute cms-db --local --file=./migrasi/seed.sql
    ```
 5. Nyalakan server lokal:
    ```bash
@@ -111,7 +112,7 @@ Admin UI merupakan aplikasi React terpisah.
    ```bash
    npm install
    ```
-3. Konfigurasikan API Endpoint dengan membuat/mengubah `.env.local`:
+3. Konfigurasikan API Endpoint dengan membuat file `.env` (berdasarkan `.env.example`):
    ```env
    VITE_API_URL=http://localhost:8787/api
    ```
@@ -130,10 +131,15 @@ Pastikan Anda sudah *login* ke Cloudflare di terminal (`npx wrangler login`).
 
 ```bash
 # Daftarkan skema ke D1 Production (Lakukan jika ada perubahan database)
-npx wrangler d1 execute cms-db --remote --file=./schema.sql
+npx wrangler d1 execute cms-db --remote --file=./migrasi/schema.sql
+
+# Masukkan data bawaan (seed) jika ini adalah deployment pertama
+npx wrangler d1 execute cms-db --remote --file=./migrasi/seed.sql
 
 # Setel Secret Variables (Hanya dilakukan sekali)
 npx wrangler secret put JWT_SECRET
+npx wrangler secret put SUPER_ADMIN_EMAIL
+npx wrangler secret put SUPER_ADMIN_PASSWORD_HASH
 
 # Deploy API ke Internet!
 npx wrangler deploy
