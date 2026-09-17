@@ -66,6 +66,7 @@ CREATE TABLE categories (
     description TEXT,
     target_keywords TEXT,
     color TEXT,
+    parent_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

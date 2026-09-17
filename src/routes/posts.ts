@@ -33,12 +33,15 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   const cursor = c.req.query('cursor')
   const sort = c.req.query('sort')
   const authorIdParam = c.req.query('author_id')
+  const tagSlug = c.req.query('tag')
 
   // Batasi input pencarian maksimal 50 karakter untuk mencegah Cache Key Poisoning
   const safeSearchQueryRaw = searchQuery ? searchQuery.substring(0, 50) : null;
+  // Sanitasi slug tag untuk mencegah Cache Key Poisoning via tag (120 sesuai schema tags)
+  const safeTagSlug = tagSlug ? tagSlug.substring(0, 120).replace(/[^a-z0-9-]/g, '') : null;
 
   // Normalisasi Cache Key untuk mencegah Cache Key Poisoning (Storage Exhaustion Attack)
-  const cacheKey = `cache:posts_list:${limit}:${offset}:${categoryId || 'any'}:${authorIdParam || 'any'}:${sort || 'newest'}:${safeSearchQueryRaw || 'none'}:${cursor || 'none'}`
+  const cacheKey = `cache:posts_list:${limit}:${offset}:${categoryId || 'any'}:${authorIdParam || 'any'}:${safeTagSlug || 'any'}:${sort || 'newest'}:${safeSearchQueryRaw || 'none'}:${cursor || 'none'}`
 
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
@@ -46,7 +49,7 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   }
 
   // Hapus p.seo_score untuk mencegah kebocoran strategi SEO ke publik
-  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id"
+  let baseQuery = "SELECT p.id, p.slug, p.title, p.excerpt, p.featured_image, p.featured_image_alt, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.published_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug, (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'slug', t.slug)) FROM post_tags pt_sub JOIN tags t ON pt_sub.tag_id = t.id WHERE pt_sub.post_id = p.id) as tags_json FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id"
   let whereClauses = ["p.status = 'published'"]
   const params: any[] = []
 
@@ -61,13 +64,19 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
   }
 
   if (categoryId) {
-    whereClauses.push("p.category_id = ?")
-    params.push(categoryId)
+    whereClauses.push("(p.category_id = ? OR p.category_id IN (SELECT id FROM categories WHERE parent_id = ?))")
+    params.push(categoryId, categoryId)
   }
 
   if (authorIdParam) {
     whereClauses.push("p.author_id = ?")
     params.push(authorIdParam)
+  }
+
+  if (safeTagSlug) {
+    baseQuery += " JOIN post_tags pt_filter ON p.id = pt_filter.post_id JOIN tags t_filter ON pt_filter.tag_id = t_filter.id"
+    whereClauses.push("t_filter.slug = ?")
+    params.push(safeTagSlug)
   }
 
   // Cursor Pagination (Keyset) lebih diprioritaskan daripada Offset
@@ -232,7 +241,7 @@ const postSchema = z.object({
   reading_time_minutes: z.number().min(0).max(1000).optional(),
   category_id: z.string().optional(),
   status: z.enum(['draft', 'published']).default('draft'),
-  tag_ids: z.array(z.string()).optional()
+  tag_ids: z.array(z.string()).max(50, 'Maksimal 50 tag per artikel.').optional()
 }).superRefine((data, ctx) => {
   if (data.status === 'published') {
     const rawContentLength = data.content ? stripHtml(data.content).length : 0;
@@ -315,8 +324,8 @@ posts.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   }
 
   if (categoryId && categoryId !== 'all') {
-    conditions.push('posts.category_id = ?')
-    params.push(categoryId)
+    conditions.push('(posts.category_id = ? OR posts.category_id IN (SELECT id FROM categories WHERE parent_id = ?))')
+    params.push(categoryId, categoryId)
   }
 
   if (status && status !== 'all') {
@@ -352,7 +361,7 @@ posts.get('/admin/:id', requirePermission('edit_post'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
-  let query = 'SELECT posts.*, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts WHERE id = ?'
+  let query = "SELECT posts.*, (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'slug', t.slug)) FROM post_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.post_id = posts.id) as tags_json FROM posts WHERE id = ?"
   const params: any[] = [targetId]
 
   const allowedToViewAny = ['super_admin', 'Admin', 'Editor']

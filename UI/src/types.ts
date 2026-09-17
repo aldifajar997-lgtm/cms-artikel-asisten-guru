@@ -39,6 +39,8 @@ export interface Category {
   targetKeywords: string[];
   color: string;
   articleCount?: number;
+  parentId?: string;
+  parentName?: string;
 }
 
 export interface UserProfile {

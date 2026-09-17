@@ -34,9 +34,13 @@ const schema = z.object({
 
 tags.post('/', authMiddleware, requirePermission('manage_taxonomy'), rateLimit(30, 60, 'tag_write'), zValidator('json', schema), async (c) => {
   const { name, slug } = c.req.valid('json')
-  const id = crypto.randomUUID()
-
   try {
+    const existing = await c.env.DB.prepare('SELECT id FROM tags WHERE slug = ?').bind(slug).first()
+    if (existing) {
+      return c.json({ message: 'Tag sudah ada.', id: existing.id })
+    }
+
+    const id = crypto.randomUUID()
     await c.env.DB.prepare('INSERT INTO tags (id, slug, name) VALUES (?, ?, ?)').bind(id, slug, name).run()
     return c.json({ message: 'Tag berhasil dibuat.', id })
   } catch {

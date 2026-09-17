@@ -9,6 +9,7 @@ import { UserSettings } from './components/UserSettings';
 import { SiteSettings } from './components/SiteSettings';
 import { Glosarium } from './components/Glosarium';
 import { generateSlug } from './utils/seoAnalyzer';
+import { Dashboard } from './components/Dashboard';
 import { Login } from './components/Login';
 import { ForgotPassword } from './components/ForgotPassword';
 import { ResetPassword } from './components/ResetPassword';
@@ -209,7 +210,7 @@ export default function App() {
 
     // Fetch categories
     try {
-      const catRes = await api.get('/categories?limit=10&offset=0');
+      const catRes = await api.get('/categories?limit=100&offset=0');
       if (catRes.data?.data) {
         const fetchedCategories = catRes.data.data.map((c: any) => ({
           id: c.id,
@@ -218,11 +219,13 @@ export default function App() {
           description: c.description || '',
           targetKeywords: c.target_keywords ? JSON.parse(c.target_keywords) : [],
           color: c.color || '#0d9488',
-          articleCount: c.article_count || 0
+          articleCount: c.article_count || 0,
+          parentId: c.parent_id || undefined,
+          parentName: c.parent_name || undefined
         }));
         setCategories(fetchedCategories);
-        setHasMoreCategories(fetchedCategories.length === 10);
-        setCategoryOffset(10);
+        setHasMoreCategories(fetchedCategories.length === 100);
+        setCategoryOffset(100);
       }
     } catch (catErr) {
       console.error('Failed to fetch categories', catErr);
@@ -245,7 +248,7 @@ export default function App() {
     if (isLoadingMoreCategories || !hasMoreCategories) return;
     setIsLoadingMoreCategories(true);
     try {
-      const catRes = await api.get(`/categories?limit=10&offset=${categoryOffset}`);
+      const catRes = await api.get(`/categories?limit=100&offset=${categoryOffset}`);
       if (catRes.data?.data) {
         const fetchedCategories = catRes.data.data.map((c: any) => ({
           id: c.id,
@@ -254,11 +257,13 @@ export default function App() {
           description: c.description || '',
           targetKeywords: c.target_keywords ? JSON.parse(c.target_keywords) : [],
           color: c.color || '#0d9488',
-          articleCount: c.article_count || 0
+          articleCount: c.article_count || 0,
+          parentId: c.parent_id || undefined,
+          parentName: c.parent_name || undefined
         }));
         setCategories(prev => [...prev, ...fetchedCategories]);
-        setHasMoreCategories(fetchedCategories.length === 10);
-        setCategoryOffset(prev => prev + 10);
+        setHasMoreCategories(fetchedCategories.length === 100);
+        setCategoryOffset(prev => prev + 100);
       }
     } catch (catErr) {
       console.error('Failed to fetch more categories', catErr);
@@ -268,7 +273,7 @@ export default function App() {
   };
 
   // Active navigation tab (user requested: buat artikel, pengaturan profile, pengaturan kategori, list artikel)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('list-artikel');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
   // Handle Preview
@@ -330,6 +335,7 @@ export default function App() {
       }
       
       setCurrentArticle(savedArticle);
+      fetchGlobalStats();
     } catch (err: any) {
       console.error('Gagal menyimpan artikel:', err);
       alert(handleApiError(err));
@@ -374,10 +380,34 @@ export default function App() {
       const res = await api.get(`/posts/admin/${article.id}`);
       if (res.data?.data) {
         const p = res.data.data;
+        let currentTagIds = article.tagIds;
+        
+        if (p.tags_json) {
+          try {
+            const parsedTags = JSON.parse(p.tags_json);
+            currentTagIds = Array.isArray(parsedTags) ? parsedTags.filter(Boolean).map((t: any) => t.id) : [];
+            
+            // Injeksi tag tersembunyi ke state global tags agar Editor bisa me-rendernya
+            if (currentTagIds.length > 0) {
+              setTags(prevTags => {
+                const newTags = [...prevTags];
+                let modified = false;
+                parsedTags.forEach((pt: any) => {
+                  if (pt && pt.id && !newTags.find(t => t.id === pt.id)) {
+                    newTags.push({ id: pt.id, name: pt.name, slug: pt.slug });
+                    modified = true;
+                  }
+                });
+                return modified ? newTags : prevTags;
+              });
+            }
+          } catch { }
+        }
+
         const fullArticle: Article = {
           ...article,
           content: p.content || '',
-          tagIds: p.tag_ids ? JSON.parse(p.tag_ids) : article.tagIds,
+          tagIds: currentTagIds,
         };
         setCurrentArticle(fullArticle);
       } else {
@@ -433,6 +463,7 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       };
       setArticles(prev => [duplicatedArticle, ...prev]);
+      fetchGlobalStats();
     } catch (err: any) {
       console.error('Gagal menduplikasi artikel:', err);
       alert('Gagal menduplikasi artikel. ' + handleApiError(err));
@@ -456,6 +487,7 @@ export default function App() {
       if (currentArticle?.id === id) {
         handleNewArticle();
       }
+      fetchGlobalStats();
     }
   };
 
@@ -467,7 +499,8 @@ export default function App() {
         slug: newCat.slug,
         description: newCat.description,
         target_keywords: newCat.targetKeywords,
-        color: newCat.color
+        color: newCat.color,
+        parent_id: newCat.parentId || null
       };
       const res = await api.post('/categories', payload);
       setCategories([...categories, { ...newCat, id: res.data.id }]);
@@ -484,7 +517,8 @@ export default function App() {
         slug: updatedCat.slug,
         description: updatedCat.description,
         target_keywords: updatedCat.targetKeywords,
-        color: updatedCat.color
+        color: updatedCat.color,
+        parent_id: updatedCat.parentId || null
       };
       await api.put(`/categories/${updatedCat.id}`, payload);
       setCategories(categories.map((c) => (c.id === updatedCat.id ? updatedCat : c)));
@@ -553,8 +587,10 @@ export default function App() {
     return (
       <Login 
         onLoginSuccess={async () => {
-          setIsAuthenticated(true);
+          setIsInitializing(true);
           await fetchProfileAndData();
+          setIsAuthenticated(true);
+          setIsInitializing(false);
         }} 
         onForgotPassword={() => setAuthView('forgot-password')}
       />
@@ -631,6 +667,10 @@ export default function App() {
             ) : (
               <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 sm:p-6 lg:p-8">
                 <div className="max-w-6xl mx-auto">
+                  {activeTab === 'dashboard' && (
+                    <Dashboard profile={profile} stats={globalStats} />
+                  )}
+
                   {activeTab === 'list-artikel' && (
                     <ArticleList
                       articles={articles}
