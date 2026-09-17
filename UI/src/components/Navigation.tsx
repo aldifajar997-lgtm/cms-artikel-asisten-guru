@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings } from 'lucide-react';
+import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings, LayoutDashboard } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs';
+export type ActiveTab = 'dashboard' | 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -24,6 +24,11 @@ export const Navigation: React.FC<NavigationProps> = ({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType; badge?: number }> = [
+    {
+      id: 'dashboard' as ActiveTab,
+      label: 'Dashboard',
+      icon: LayoutDashboard,
+    },
     {
       id: 'list-artikel' as ActiveTab,
       label: 'List Artikel',

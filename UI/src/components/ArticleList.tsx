@@ -127,63 +127,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
         </button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
-          <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Artikel</p>
-            <p className="text-2xl font-bold text-slate-800">{stats.totalArticles}</p>
-            <p className="text-[11px] text-teal-600 font-medium">{stats.publishedCount} Terpublikasi</p>
-          </div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
-          <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
-            <Sparkles className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Rata-rata Skor SEO</p>
-            <p className="text-2xl font-bold text-slate-800">{stats.avgScore}/100</p>
-            <p className="text-[11px] text-teal-600 font-medium">Kondisi Sangat Optimal</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
-          <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
-            <BarChart3 className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Kata Ditulis</p>
-            <p className="text-2xl font-bold text-slate-800">{stats.totalWords.toLocaleString('id-ID')}</p>
-            <p className="text-[11px] text-teal-600 font-medium">~{Math.round(stats.totalWords / Math.max(1, stats.totalArticles))} kata/artikel</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
-          <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
-            <MousePointerClick className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Tayangan</p>
-            <p className="text-2xl font-bold text-slate-800">{stats.totalViews?.toLocaleString('id-ID') || 0}</p>
-            <p className="text-[11px] text-teal-600 font-medium">Pengunjung Pembaca</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-4">
-          <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
-            <Layers className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Draf / Menunggu</p>
-            <p className="text-2xl font-bold text-slate-800">{stats.draftCount}</p>
-            <p className="text-[11px] text-slate-400 font-medium">Dalam Pengerjaan</p>
-          </div>
-        </div>
-      </div>
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-3">
@@ -209,10 +153,15 @@ export const ArticleList: React.FC<ArticleListProps> = ({
               className="text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl px-3 py-2 text-slate-600 font-medium focus:outline-hidden focus:ring-1 focus:ring-teal-500 cursor-pointer"
             >
               <option value="all">Semua Kategori</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
+              {categories.filter(c => !c.parentId).map((parentCat) => (
+                <optgroup key={parentCat.id} label={parentCat.name}>
+                  <option value={parentCat.id}>{parentCat.name} (Semua)</option>
+                  {categories.filter(c => c.parentId === parentCat.id).map((subCat) => (
+                    <option key={subCat.id} value={subCat.id}>
+                      -- {subCat.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
 

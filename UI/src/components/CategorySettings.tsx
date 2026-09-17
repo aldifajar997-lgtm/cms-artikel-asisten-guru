@@ -46,6 +46,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
   const [description, setDescription] = useState('');
   const [keywordsText, setKeywordsText] = useState('');
   const [color, setColor] = useState('#0d9488');
+  const [parentId, setParentId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -56,6 +57,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
     setDescription('');
     setKeywordsText('');
     setColor('#0d9488');
+    setParentId('');
     setError(null);
     setIsModalOpen(true);
   };
@@ -67,6 +69,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
     setDescription(cat.description);
     setKeywordsText(cat.targetKeywords.join(', '));
     setColor(cat.color || '#0d9488');
+    setParentId(cat.parentId || '');
     setError(null);
     setIsModalOpen(true);
   };
@@ -101,6 +104,8 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
             description: description.trim(),
             targetKeywords,
             color,
+            parentId: parentId || undefined,
+            parentName: parentId ? categories.find(c => c.id === parentId)?.name : undefined,
           });
           setSuccessMessage('Kategori berhasil diperbarui!');
         }
@@ -112,6 +117,8 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
           description: description.trim(),
           targetKeywords,
           color,
+          parentId: parentId || undefined,
+          parentName: parentId ? categories.find(c => c.id === parentId)?.name : undefined,
           articleCount: 0,
         };
         await onAddCategory(newCategory);
@@ -187,6 +194,13 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
                   {cat.articleCount || 0} artikel
                 </span>
               </div>
+              
+              {cat.parentName && (
+                <div className="flex items-center text-[10px] text-teal-700 bg-teal-50/80 border border-teal-100 px-2 py-0.5 rounded-md w-fit">
+                  <Layers className="w-3 h-3 mr-1" />
+                  Sub-kategori dari: {cat.parentName}
+                </div>
+              )}
 
               {/* Slug */}
               <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
@@ -331,6 +345,36 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
                   placeholder="contoh: tools ai gratis, prompt engineering indonesia, tutorial ai"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800"
                 />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Kategori Induk (Opsional)
+                </label>
+                {(() => {
+                  const hasChildren = editingCategoryId ? categories.some(c => c.parentId === editingCategoryId) : false;
+                  return (
+                    <>
+                      <select
+                        value={parentId}
+                        onChange={(e) => setParentId(e.target.value)}
+                        disabled={hasChildren}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <option value="">Tidak Ada (Jadikan Kategori Pilar)</option>
+                        {categories.filter(c => !c.parentId && c.id !== editingCategoryId).map(parentCat => (
+                          <option key={parentCat.id} value={parentCat.id}>{parentCat.name}</option>
+                        ))}
+                      </select>
+                      {hasChildren && (
+                        <p className="text-[10px] text-amber-600 mt-1 font-medium">
+                          <AlertCircle className="w-3 h-3 inline mr-1" />
+                          Kategori ini memiliki sub-kategori, sehingga tidak bisa dijadikan sub-kategori dari kategori lain.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               <div>

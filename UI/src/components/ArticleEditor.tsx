@@ -449,10 +449,15 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                   onChange={(e) => setCategoryId(e.target.value)}
                   className="font-medium text-slate-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer hover:text-teal-600 py-1"
                 >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+                  {categories.filter(c => !c.parentId).map((parentCat) => (
+                    <optgroup key={parentCat.id} label={parentCat.name}>
+                      <option value={parentCat.id}>{parentCat.name} (Umum)</option>
+                      {categories.filter(c => c.parentId === parentCat.id).map((subCat) => (
+                        <option key={subCat.id} value={subCat.id}>
+                          -- {subCat.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
 
@@ -728,10 +733,17 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                       onChange={(e) => setCategoryId(e.target.value)}
                       className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 font-medium text-slate-800"
                     >
-                      {categories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name} ({cat.targetKeywords.length} pilar KW)
-                        </option>
+                      {categories.filter(c => !c.parentId).map((parentCat) => (
+                        <optgroup key={parentCat.id} label={parentCat.name}>
+                          <option value={parentCat.id}>
+                            {parentCat.name} (Utama - {parentCat.targetKeywords.length} pilar KW)
+                          </option>
+                          {categories.filter(c => c.parentId === parentCat.id).map((subCat) => (
+                            <option key={subCat.id} value={subCat.id}>
+                              -- {subCat.name} ({subCat.targetKeywords.length} pilar KW)
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                     {currentCategory && (
@@ -782,8 +794,21 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                             e.preventDefault();
                             const val = e.currentTarget.value.trim();
                             if (val) {
+                              const newSlug = generateSlug(val);
+                              
+                              // 1. Cek apakah tag sudah ada di state lokal (menghindari API call tidak perlu)
+                              const existingLocal = tags.find(t => t.slug === newSlug || t.name.toLowerCase() === val.toLowerCase());
+                              if (existingLocal) {
+                                if (!tagIds.includes(existingLocal.id)) {
+                                  setTagIds([...tagIds, existingLocal.id]);
+                                }
+                                e.currentTarget.value = '';
+                                return;
+                              }
+
+                              // 2. Jika tidak ada di lokal (mungkin baru, atau di atas limit 100), panggil API
+                              // API sekarang memiliki behavior Get-or-Create sehingga tidak akan melempar 400 jika slug sudah ada.
                               try {
-                                const newSlug = generateSlug(val);
                                 const res = await api.post('/tags', { name: val, slug: newSlug });
                                 const newTag = { id: res.data.id, name: val, slug: newSlug };
                                 onTagsChange([...tags, newTag]);
