@@ -64,6 +64,7 @@ Before deploying AI-generated code, all agents *must* follow this checklist to e
 
 ## Deployment Checklist
 
+- [ ] **CRITICAL:** Backend and Frontend MUST be deployed via `wrangler` CLI directly, NEVER via GitHub auto-deployments or GitHub Actions.
 - [ ] Review all dependencies for security vulnerabilities
 - [ ] Review all environment variables for security
 - [ ] Review all secrets for security
