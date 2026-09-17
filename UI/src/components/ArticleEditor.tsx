@@ -101,9 +101,10 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
       metaDescription,
       profile.targetMinWords || 1200,
       featuredImage,
-      featuredImageAlt
+      featuredImageAlt,
+      secondaryKeywords
     );
-  }, [title, content, focusKeyword, metaTitle, metaDescription, profile.targetMinWords, featuredImage, featuredImageAlt]);
+  }, [title, content, focusKeyword, metaTitle, metaDescription, profile.targetMinWords, featuredImage, featuredImageAlt, secondaryKeywords]);
 
   // Keep slug in sync if untouched or user requests
   const handleAutoSlug = () => {

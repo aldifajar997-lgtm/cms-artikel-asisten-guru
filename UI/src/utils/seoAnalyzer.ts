@@ -8,7 +8,8 @@ export function calculateSEOAnalysis(
   metaDescription: string = '',
   targetWords: number = 1000,
   featuredImage?: string,
-  featuredImageAlt?: string
+  featuredImageAlt?: string,
+  secondaryKeywords: string[] = []
 ): SEOAnalysis {
   const cleanKeyword = (focusKeyword || '').trim().replace(/\s+/g, ' ').toLowerCase();
   const safeTitle = (title || '').toLowerCase();
@@ -141,6 +142,69 @@ export function calculateSEOAnalysis(
       detail: `Densitas ${keywordDensity}% (${keywordCount}x). Disarankan muncul 1-2 kali lagi di sub-heading atau isi.`,
     });
     earnedPoints += 8;
+  }
+
+  // 4.5. LSI / Secondary Keywords Check
+  if (secondaryKeywords && secondaryKeywords.length > 0) {
+    let foundLsiCount = 0;
+    const rawText = plainText.toLowerCase();
+    
+    secondaryKeywords.forEach((lsi) => {
+      const cleanLsi = lsi.trim().toLowerCase();
+      if (cleanLsi) {
+        // match non-regex safe characters safely
+        const escaped = cleanLsi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+        if (regex.test(rawText)) {
+          foundLsiCount++;
+        }
+      }
+    });
+
+    const lsiPercentage = (foundLsiCount / secondaryKeywords.length) * 100;
+
+    if (lsiPercentage === 100) {
+      checks.push({
+        id: 'kw-lsi',
+        label: 'Optimasi LSI (Kata Kunci Turunan)',
+        status: 'good',
+        detail: `Luar biasa! ${foundLsiCount} dari ${secondaryKeywords.length} LSI keyword ditemukan dalam artikel.`,
+      });
+      earnedPoints += 15; // Bonus SEO besar
+    } else if (lsiPercentage >= 50) {
+      checks.push({
+        id: 'kw-lsi',
+        label: 'Sebagian LSI Keyword Digunakan',
+        status: 'good',
+        detail: `Bagus! ${foundLsiCount} dari ${secondaryKeywords.length} LSI keyword ditemukan dalam artikel.`,
+      });
+      earnedPoints += 8; // Bonus sedang
+    } else if (foundLsiCount > 0) {
+      checks.push({
+        id: 'kw-lsi',
+        label: 'Kurang Menggunakan LSI Keyword',
+        status: 'warning',
+        detail: `Hanya ${foundLsiCount} dari ${secondaryKeywords.length} LSI yang digunakan. Selipkan sisanya secara natural.`,
+      });
+      earnedPoints += 3;
+    } else {
+      checks.push({
+        id: 'kw-lsi',
+        label: 'LSI Keyword Tidak Digunakan',
+        status: 'bad',
+        detail: 'Anda menambahkan LSI keyword, tapi tidak satupun muncul dalam konten.',
+      });
+    }
+  } else {
+    // If they have a focus keyword but no LSI
+    if (cleanKeyword.length > 0) {
+      checks.push({
+        id: 'kw-lsi',
+        label: 'Belum Ada LSI Keyword',
+        status: 'warning',
+        detail: 'Tambahkan beberapa LSI / secondary keywords (misal sinonim) agar Google lebih mudah memahami konteks.',
+      });
+    }
   }
 
   // 5. Headings Structure (H2 / H3)
