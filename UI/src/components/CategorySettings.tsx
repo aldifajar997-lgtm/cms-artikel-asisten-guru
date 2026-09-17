@@ -173,97 +173,140 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
         </div>
       </div>
 
-      {/* Categories Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {categories.map((cat) => (
-          <div
-            key={cat.id}
-            className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs hover:shadow-md hover:border-teal-200 transition-all flex flex-col justify-between"
-          >
-            <div className="space-y-3">
-              {/* Category Title & Badge */}
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center space-x-2.5">
-                  <div
-                    className="w-3.5 h-3.5 rounded-full shrink-0"
-                    style={{ backgroundColor: cat.color || '#0d9488' }}
-                  />
-                  <h2 className="text-base font-bold text-slate-800">{cat.name}</h2>
+      {/* Categories Grouped by Silo */}
+      <div className="space-y-12">
+        {categories
+          .filter((c) => !c.parentId)
+          .map((parent) => {
+            const children = categories.filter((c) => c.parentId === parent.id);
+
+            return (
+              <div key={parent.id} className="space-y-4">
+                {/* Header Silo */}
+                <div className="flex items-center space-x-3 border-b border-slate-200 pb-3">
+                  <div 
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm" 
+                    style={{ backgroundColor: parent.color || '#0d9488' }}
+                  >
+                    <Layers className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
+                      Silo: {parent.name}
+                    </h2>
+                    <p className="text-[11px] text-slate-500 font-medium">Topik Pilar Utama</p>
+                  </div>
                 </div>
-                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
-                  {cat.articleCount || 0} artikel
-                </span>
-              </div>
-              
-              {cat.parentName && (
-                <div className="flex items-center text-[10px] text-teal-700 bg-teal-50/80 border border-teal-100 px-2 py-0.5 rounded-md w-fit">
-                  <Layers className="w-3 h-3 mr-1" />
-                  Sub-kategori dari: {cat.parentName}
-                </div>
-              )}
 
-              {/* Slug */}
-              <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
-                /{cat.slug}
-              </div>
-
-              {/* Description */}
-              <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
-                {cat.description || 'Tidak ada deskripsi kategori.'}
-              </p>
-
-              {/* Target Keywords / LSI */}
-              <div className="space-y-1.5 pt-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Target Kata Kunci Pilar:
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {cat.targetKeywords.length > 0 ? (
-                    cat.targetKeywords.map((kw, i) => (
-                      <span
-                        key={i}
-                        className="text-[11px] px-2.5 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-100 font-medium"
+                {/* Grid per Silo */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {[parent, ...children].map((cat) => {
+                    const isParent = cat.id === parent.id;
+                    return (
+                      <div
+                        key={cat.id}
+                        className={`bg-white rounded-2xl p-5 transition-all flex flex-col justify-between ${
+                          isParent 
+                            ? 'border-2 border-teal-500 shadow-md shadow-teal-500/10' 
+                            : 'border-l-4 border-l-slate-300 border-y border-y-slate-100 border-r border-r-slate-100 shadow-xs hover:border-l-teal-400'
+                        }`}
                       >
-                        {kw}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">Belum ada target kata kunci</span>
-                  )}
+                        <div className="space-y-3">
+                          {/* Category Title & Badge */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center space-x-2.5">
+                              <div
+                                className="w-3.5 h-3.5 rounded-full shrink-0"
+                                style={{ backgroundColor: cat.color || '#0d9488' }}
+                              />
+                              <h2 className={`font-bold text-slate-800 ${isParent ? 'text-lg' : 'text-base'}`}>
+                                {cat.name}
+                              </h2>
+                            </div>
+                            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
+                              {cat.articleCount || 0} artikel
+                            </span>
+                          </div>
+                          
+                          {/* Type Badge */}
+                          {isParent ? (
+                            <div className="inline-block text-[10px] text-teal-800 font-bold bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-md w-fit">
+                              ★ Pilar Utama
+                            </div>
+                          ) : (
+                            <div className="flex items-center text-[10px] text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md w-fit">
+                              <Layers className="w-3 h-3 mr-1" />
+                              Sub-kategori
+                            </div>
+                          )}
+
+                          {/* Slug */}
+                          <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
+                            /{cat.slug}
+                          </div>
+
+                          {/* Description */}
+                          <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+                            {cat.description || 'Tidak ada deskripsi kategori.'}
+                          </p>
+
+                          {/* Target Keywords / LSI */}
+                          <div className="space-y-1.5 pt-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Target Kata Kunci Pilar:
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {cat.targetKeywords.length > 0 ? (
+                                cat.targetKeywords.map((kw, i) => (
+                                  <span
+                                    key={i}
+                                    className="text-[11px] px-2.5 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-100 font-medium"
+                                  >
+                                    {kw}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Belum ada target kata kunci</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Footer Actions */}
+                        <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Silo Kluster SEO</span>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => openEditModal(cat)}
+                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                              title="Edit Kategori"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`)) {
+                                  try {
+                                    await onDeleteCategory(cat.id);
+                                  } catch (err: any) {
+                                    alert(handleApiError(err));
+                                  }
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus Kategori"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-
-            {/* Footer Actions */}
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Silo Kluster SEO</span>
-              <div className="flex items-center space-x-1">
-                <button
-                  onClick={() => openEditModal(cat)}
-                  className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-                  title="Edit Kategori"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={async () => {
-                    if (confirm(`Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`)) {
-                      try {
-                        await onDeleteCategory(cat.id);
-                      } catch (err: any) {
-                        alert(handleApiError(err));
-                      }
-                    }
-                  }}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                  title="Hapus Kategori"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
+            );
+          })}
       </div>
 
       {hasMore && onLoadMore && (
