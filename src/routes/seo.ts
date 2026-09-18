@@ -142,7 +142,6 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
     <priority>0.6</priority>
   </url>`).join('')
 
-    // Hub belum memiliki rute untuk tag, namun kita siapkan strukturnya di /blog/tag/
     const tagUrls = tags.results.map(tag => `
   <url>
     <loc>${frontendUrl}/blog/tag/${escapeXml(tag.slug as string)}</loc>
