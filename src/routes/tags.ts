@@ -27,6 +27,19 @@ tags.get('/', rateLimit(500, 60, 'public_tags'), async (c) => {
   return c.json({ data: list.results, limit, offset })
 })
 
+tags.get('/:slug', rateLimit(500, 60, 'public_tags'), async (c) => {
+  const slug = c.req.param('slug')
+  const tag = await c.env.DB.prepare(
+    'SELECT id, slug, name, created_at FROM tags WHERE slug = ?'
+  ).bind(slug).first()
+
+  if (!tag) {
+    throw new HTTPException(404, { message: 'Tag tidak ditemukan.' })
+  }
+
+  return c.json({ data: tag })
+})
+
 const schema = z.object({
   name: z.string().min(1).max(100).transform(cleanText),
   slug: z.string().min(1).max(100).regex(slugRegex, 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung').transform(cleanText)
