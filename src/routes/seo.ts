@@ -166,6 +166,7 @@ seo.get('/robots.txt', rateLimit(20, 60, 'robots'), (c) => {
   const frontendUrl = getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL)
 
   const content = `User-agent: *
+Allow: /api/media/
 Disallow: /api/
 Allow: /sitemap.xml
 Allow: /sitemap-posts-*.xml
