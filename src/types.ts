@@ -11,6 +11,7 @@ export type Bindings = {
   ALLOWED_ORIGINS?: string // Daftar origin yang diizinkan, dipisah koma
   TURNSTILE_SECRET?: string
   TURNSTILE_HOSTNAMES?: string
+  HUB_PUBLIC_KEY?: string
 }
 
 export interface JWTPayload {

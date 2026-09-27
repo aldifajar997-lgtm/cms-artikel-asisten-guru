@@ -82,14 +82,43 @@ Menangani pembuatan taksonomi untuk pengelompokan artikel.
 
 | Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
 | :--- | :---: | :--- | :--- |
-| `/api/categories` | `GET` | 🟢 **Publik** | Mendapatkan daftar seluruh kategori yang tersedia beserta jumlah artikel di masing-masing kategori (`article_count`). |
-| `/api/categories` | `POST` | 🛡️ **Izin Khusus** | Membuat kategori baru (Membutuhkan izin `manage_taxonomy`). |
-| `/api/categories/:id` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui nama/slug kategori (Membutuhkan izin `manage_taxonomy`). |
-| `/api/categories/:id` | `DELETE` | 🛡️ **Izin Khusus** | Menghapus kategori (Membutuhkan izin `manage_taxonomy`). |
+| `/api/categories` | `GET` | 🟢 **Publik** | Mendapatkan daftar seluruh kategori beserta metrik penggunaan (`article_count` & `product_count`). Mendukung filter `?type=article` atau `?type=product`. |
+| `/api/categories` | `POST` | 🛡️ **Izin Khusus** | Membuat kategori baru (Bisa bertipe `article` dengan hierarki induk-anak, atau `product` secara datar). Membutuhkan izin `manage_taxonomy`. |
+| `/api/categories/:id` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui detail kategori. Memiliki proteksi ketat: **Tipe kategori (article/product) tidak dapat diubah** jika kategori tersebut sudah terpakai oleh konten. |
+| `/api/categories/:id` | `DELETE` | 🛡️ **Izin Khusus** | Menghapus kategori. Secara otomatis memutus relasi ID di tabel `posts` dan `products` menjadi `NULL` (mencegah *Orphan ID*), serta melepaskan sub-kategorinya. |
 | `/api/tags` | `GET` | 🟢 **Publik** | Mendapatkan daftar seluruh *tags* (label) artikel yang ada. |
 | `/api/tags` | `POST` | 🛡️ **Izin Khusus** | Membuat _tag_ baru (Membutuhkan izin `manage_taxonomy`). |
 | `/api/tags/:id` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui nama/slug _tag_ (Membutuhkan izin `manage_taxonomy`). |
 | `/api/tags/:id` | `DELETE` | 🛡️ **Izin Khusus** | Menghapus _tag_ (Membutuhkan izin `manage_taxonomy`). |
+
+---
+
+## 🛍️ Modul Produk Digital & Integrasi Hub (`/api/products`)
+Modul ini menangani manajemen produk digital untuk diperjualbelikan (E-commerce) serta menyediakan *endpoint internal* yang hanya bisa diakses oleh **Marketplace Hub** menggunakan kunci kriptografi Asimetris (RS256 JWT).
+
+### Endpoint Publik (Katalog)
+| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+| :--- | :---: | :--- | :--- |
+| `/public` | `GET` | 🟢 **Publik** | Mendapatkan daftar produk yang statusnya `published`. Mendukung pencarian (`?search`), filter kategori ID (`?category_id`), dan filter slug kategori (`?category_slug`). |
+| `/public/:slug` | `GET` | 🟢 **Publik** | Menampilkan detail spesifik satu produk. Merespons dengan *header Cache-Control* khusus untuk memastikan Hub selalu mendapat harga _real-time_. |
+| `/public/:slug/view` | `POST` | 🟢 **Publik** | Menambahkan metrik jumlah tayang produk. (Memiliki Rate Limiting khusus per-slug). |
+
+### Endpoint Internal (Khusus Ekosistem Hub)
+| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+| :--- | :---: | :--- | :--- |
+| `/internal/:id/download` | `POST` | 🔐 **JWT (Hub)** | Mengunduh _file_ produk digital yang terenkripsi di *Object Storage* (R2). Memvalidasi token dari Hub, mengecek `product_id`, dan merespons langsung dengan _stream file_. |
+| `/internal/:id/price` | `GET` | 🔐 **JWT (Hub)** | Mengecek harga *real-time* suatu produk sesaat sebelum proses *checkout* di Hub untuk menghindari kecurangan perubahan harga. |
+| `/internal/:id/sale` | `POST` | 🔐 **JWT (Hub)** | Memicu perhitungan jumlah penjualan (`sales_count`). Dilengkapi mekanisme proteksi *Replay Attack* dan *Idempotensi* menggunakan `jti` yang di-cache di Cloudflare KV selama 24 jam. |
+
+### Endpoint Administratif (CMS)
+| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+| :--- | :---: | :--- | :--- |
+| `/upload-file` | `POST` | 🔴 **Butuh Login** | Mengunggah _file_ produk digital mentah (.zip, .rar, .pdf) ke R2 Storage dengan verifikasi ketat _Magic Bytes_ (Maks 50MB). |
+| `/admin/all` | `GET` | 🔴 **Butuh Login** | Menampilkan seluruh produk (CMS Dashboard). Super Admin melihat semua, penulis biasa melihat miliknya sendiri. |
+| `/admin/:id` | `GET` | 🔴 **Butuh Login** | Menarik data spesifik satu produk untuk diedit. |
+| `/` | `POST` | 🔴 **Butuh Login** | Membuat entri produk baru. Memvalidasi bahwa `category_id` yang dipilih harus memiliki `type === 'product'`. |
+| `/:id` | `PUT` | 🔴 **Butuh Login** | Memperbarui entri produk. Secara otomatis membersihkan _file_ sampah lama di R2 jika _file_ produk diubah. |
+| `/:id` | `DELETE` | 🔴 **Butuh Login** | Menghapus produk. Jika status masih `draft`, _file_ fisik dan *record* akan dihapus total (*Hard Delete*). Jika `published`, status diubah jadi `archived` dengan merombak nilai `slug` (*Soft Delete*) demi melindungi hak akses bagi pembeli lama. |
 
 ---
 
@@ -130,8 +159,9 @@ Menangani *file* khusus untuk keperluan SEO dan verifikasi *health check* sistem
 | Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
 | :--- | :---: | :--- | :--- |
 | `/` | `GET` | 🟢 **Publik** | Mengembalikan status *health check* dasar. |
-| `/sitemap.xml` | `GET` | 🟢 **Publik** | Men-generate Sitemap Index secara dinamis, yang merujuk ke sub-sitemap artikel (paginated), kategori, dan tag. Memiliki proteksi *Rate Limiting* (20 req/menit) dan *Cache-Control* 1 jam. |
+| `/sitemap.xml` | `GET` | 🟢 **Publik** | Men-generate Sitemap Index secara dinamis, yang merujuk ke sub-sitemap artikel (paginated), produk, kategori, dan tag. Memiliki proteksi *Rate Limiting* (20 req/menit) dan *Cache-Control* 1 jam. |
 | `/sitemap-posts-:page.xml` | `GET` | 🟢 **Publik** | Sub-sitemap artikel per halaman (masing-masing maks 1000 URL). |
+| `/sitemap-products-:page.xml` | `GET` | 🟢 **Publik** | Sub-sitemap produk per halaman (masing-masing maks 1000 URL). |
 | `/sitemap-taxonomy.xml` | `GET` | 🟢 **Publik** | Sub-sitemap kategori dan tag. |
 | `/robots.txt` | `GET` | 🟢 **Publik** | Men-generate dokumen *robots.txt* yang berisi direktif akses _bot_ dan _link_ sitemap. |
 

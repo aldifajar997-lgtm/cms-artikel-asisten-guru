@@ -63,6 +63,7 @@ CREATE TABLE categories (
     id TEXT PRIMARY KEY,
     slug TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'article',
     description TEXT,
     target_keywords TEXT,
     color TEXT,
@@ -157,3 +158,33 @@ CREATE TRIGGER posts_search_update AFTER UPDATE ON posts BEGIN
   UPDATE posts_search SET title = new.title, content = new.content, excerpt = new.excerpt WHERE id = new.id;
 END;
 
+-- TABEL MARKETPLACE PRODUK DIGITAL
+CREATE TABLE products (
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    price INTEGER NOT NULL,
+    original_price INTEGER,
+    cover_image_key TEXT,
+    cover_image_alt TEXT,
+    detail_image_1_key TEXT,
+    detail_image_1_alt TEXT,
+    detail_image_2_key TEXT,
+    detail_image_2_alt TEXT,
+    detail_image_3_key TEXT,
+    detail_image_3_alt TEXT,
+    file_r2_key TEXT,
+    status TEXT DEFAULT 'draft',
+    author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    meta_title TEXT,
+    meta_description TEXT,
+    view_count INTEGER DEFAULT 0,
+    sales_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_products_status ON products(status);
+CREATE INDEX idx_products_slug ON products(slug);

@@ -120,7 +120,35 @@ export const handleApiError = (error: any): string => {
     
     // Zod validation error parser from Hono @hono/zod-validator
     if (data?.error?.issues && Array.isArray(data.error.issues) && data.error.issues.length > 0) {
-      return 'Input tidak valid. Periksa kembali data yang diisi.';
+      return 'Sebagian data yang Anda masukkan tidak valid. Periksa kembali formulir Anda.';
+    }
+    
+    if (data?.error?.name === 'ZodError') {
+      try {
+        const issues = JSON.parse(data.error.message);
+        if (Array.isArray(issues) && issues.length > 0) {
+          const firstIssue = issues[0];
+          const fieldMap: Record<string, string> = {
+            title: 'Judul Produk',
+            slug: 'Slug URL',
+            price: 'Harga Jual',
+            description: 'Deskripsi',
+            cover_image_key: 'Cover Gambar',
+            file_r2_key: 'File Produk',
+            category_id: 'Kategori'
+          };
+          const fieldName = firstIssue.path?.[0];
+          const friendlyName = fieldMap[fieldName] || fieldName || 'Formulir';
+          
+          if (firstIssue.code === 'invalid_type' && firstIssue.received === 'undefined') {
+            return `Harap lengkapi bagian: ${friendlyName}.`;
+          }
+          return `Terdapat kesalahan pengisian pada bagian: ${friendlyName}. Periksa kembali data Anda.`;
+        }
+      } catch (e) {
+        return 'Sebagian data yang Anda masukkan tidak valid. Periksa kembali formulir Anda.';
+      }
+      return 'Sebagian data yang Anda masukkan tidak valid. Periksa kembali formulir Anda.';
     }
 
     // Pesan bawaan dari backend jika ada dan relatif aman

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings, LayoutDashboard } from 'lucide-react';
+import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings, LayoutDashboard, ShoppingBag } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'dashboard' | 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs';
+export type ActiveTab = 'dashboard' | 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs' | 'list-produk' | 'buat-produk';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -34,6 +34,11 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'List Artikel',
       icon: FileText,
       badge: articleCount,
+    },
+    {
+      id: 'list-produk' as ActiveTab,
+      label: 'Produk Digital',
+      icon: ShoppingBag,
     }
   ];
 

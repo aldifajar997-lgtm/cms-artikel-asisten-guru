@@ -13,7 +13,7 @@ import tagsRoutes from './routes/tags'
 import dashboardRoutes from './routes/dashboard'
 import seoRoutes from './routes/seo'
 import settingsRoutes from './routes/settings'
-
+import productsRoutes from './routes/products'
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.use('*', secureHeaders({
@@ -58,6 +58,67 @@ app.route('/api/media', mediaRoutes)
 app.route('/api/categories', categoriesRoutes)
 app.route('/api/tags', tagsRoutes)
 app.route('/api/settings', settingsRoutes)
+app.route('/api/products', productsRoutes)
 app.route('/api/dashboard', dashboardRoutes)
 app.route('/', seoRoutes)
-export default app
+export default {
+  fetch: app.fetch,
+  scheduled: async (event: any, env: Bindings, ctx: any) => {
+    ctx.waitUntil((async () => {
+      console.log('Menjalankan cron job Garbage Collector R2 untuk Marketplace...');
+      
+      try {
+        // 1. Kumpulkan semua r2 key yang AKTIF digunakan di database D1
+        const res = await env.DB.prepare('SELECT file_r2_key, cover_image_key FROM products').all()
+        const activeKeys = new Set<string>()
+        res.results.forEach((row: any) => {
+          if (row.file_r2_key) activeKeys.add(row.file_r2_key)
+          if (row.cover_image_key) activeKeys.add(row.cover_image_key)
+        })
+
+        // 2. Iterasi seluruh object di R2 yang berawalan 'products/'
+        let cursor: string | undefined
+        let deletedCount = 0
+        
+        do {
+          const list: any = await env.R2.list({ prefix: 'products/', cursor })
+          
+          for (const object of list.objects) {
+            // Hapus jika file tidak terdaftar di DB DAN usianya lebih dari 24 jam (mengamankan file yang sedang diunggah)
+            const isOlderThan24h = (new Date().getTime() - object.uploaded.getTime()) > 86400000
+            
+            if (!activeKeys.has(object.key) && isOlderThan24h) {
+              await env.R2.delete(object.key)
+              deletedCount++
+              console.log(`[GC] Berhasil menghapus file yatim (orphan): ${object.key}`)
+            }
+          }
+          cursor = list.truncated ? list.cursor : undefined
+        } while (cursor)
+        
+        console.log(`Cron job selesai. Total file sampah terhapus: ${deletedCount}`)
+      } catch (error) {
+        console.error('Terjadi kesalahan saat menjalankan Garbage Collector R2:', error)
+      }
+      
+      // 3. Trigger S2S Sync Queue di Hub
+      try {
+        console.log('Men-trigger S2S Sync Queue di Hub...');
+        // env.HUB_PUBLIC_KEY digunakan sebagai otorisasi internal
+        const res = await fetch(`${env.HUB_URL || 'https://asisten-guru.id'}/api/payment/sync-queue`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.HUB_PUBLIC_KEY}` }
+        });
+        
+        if (res.ok) {
+           const result = await res.json();
+           console.log(`[S2S Queue] Status: OK, Processed: ${result.processed}, Success: ${result.success_count}`);
+        } else {
+           console.error(`[S2S Queue] Trigger failed with status: ${res.status}`);
+        }
+      } catch (err) {
+        console.error('Gagal men-trigger S2S Queue Hub:', err);
+      }
+    })())
+  }
+}

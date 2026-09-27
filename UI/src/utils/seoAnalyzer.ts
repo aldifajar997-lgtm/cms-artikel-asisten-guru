@@ -54,7 +54,7 @@ export function calculateSEOAnalysis(
   let earnedPoints = 0;
   const maxPoints = 100;
 
-  // 1. Focus Keyword defined
+  // 1. Focus Keyword defined (Max 10)
   if (cleanKeyword.length > 0) {
     checks.push({
       id: 'kw-defined',
@@ -72,7 +72,7 @@ export function calculateSEOAnalysis(
     });
   }
 
-  // 2. Keyword in Title
+  // 2. Keyword in Title (Max 10)
   const titleLower = safeTitle;
   if (cleanKeyword && titleLower.includes(cleanKeyword)) {
     checks.push({
@@ -81,7 +81,7 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: 'Kata kunci utama terdapat dalam judul H1.',
     });
-    earnedPoints += 15;
+    earnedPoints += 10;
   } else {
     checks.push({
       id: 'kw-title',
@@ -91,7 +91,7 @@ export function calculateSEOAnalysis(
     });
   }
 
-  // 3. Keyword in First Paragraph (~first 100 words)
+  // 3. Keyword in First Paragraph (Max 10)
   const first100Words = textWords.slice(0, 100).join(' ').toLowerCase();
   if (cleanKeyword && first100Words.includes(cleanKeyword)) {
     checks.push({
@@ -100,17 +100,17 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: 'Kata kunci ditemukan di 100 kata pertama artikel.',
     });
-    earnedPoints += 15;
+    earnedPoints += 10;
   } else {
     checks.push({
       id: 'kw-intro',
       label: 'Kata Kunci di Paragraf Pembuka',
-      status: 'warning',
+      status: cleanKeyword ? 'warning' : 'warning',
       detail: 'Sebaiknya munculkan kata kunci di pengantar atau 100 kata awal.',
     });
   }
 
-  // 4. Keyword Density (Ideal: 0.8% - 2.5%)
+  // 4. Keyword Density (Max 10)
   if (!cleanKeyword) {
     checks.push({
       id: 'kw-density',
@@ -125,7 +125,7 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: `Densitas ${keywordDensity}% (${keywordCount}x muncul) — Sangat seimbang dan natural.`,
     });
-    earnedPoints += 15;
+    earnedPoints += 10;
   } else if (keywordDensity > 2.5) {
     checks.push({
       id: 'kw-density',
@@ -133,7 +133,6 @@ export function calculateSEOAnalysis(
       status: 'bad',
       detail: `Densitas ${keywordDensity}% (${keywordCount}x). Kurangi pengulangan kata kunci agar terhindar dari penalti.`,
     });
-    earnedPoints += 5;
   } else {
     checks.push({
       id: 'kw-density',
@@ -141,10 +140,10 @@ export function calculateSEOAnalysis(
       status: 'warning',
       detail: `Densitas ${keywordDensity}% (${keywordCount}x). Disarankan muncul 1-2 kali lagi di sub-heading atau isi.`,
     });
-    earnedPoints += 8;
+    earnedPoints += 5;
   }
 
-  // 4.5. LSI / Secondary Keywords Check
+  // 5. LSI / Secondary Keywords Check (Max 10)
   if (secondaryKeywords && secondaryKeywords.length > 0) {
     let foundLsiCount = 0;
     const rawText = plainText.toLowerCase();
@@ -170,7 +169,7 @@ export function calculateSEOAnalysis(
         status: 'good',
         detail: `Luar biasa! ${foundLsiCount} dari ${secondaryKeywords.length} LSI keyword ditemukan dalam artikel.`,
       });
-      earnedPoints += 15; // Bonus SEO besar
+      earnedPoints += 10;
     } else if (lsiPercentage >= 50) {
       checks.push({
         id: 'kw-lsi',
@@ -178,7 +177,7 @@ export function calculateSEOAnalysis(
         status: 'good',
         detail: `Bagus! ${foundLsiCount} dari ${secondaryKeywords.length} LSI keyword ditemukan dalam artikel.`,
       });
-      earnedPoints += 8; // Bonus sedang
+      earnedPoints += 7;
     } else if (foundLsiCount > 0) {
       checks.push({
         id: 'kw-lsi',
@@ -186,7 +185,7 @@ export function calculateSEOAnalysis(
         status: 'warning',
         detail: `Hanya ${foundLsiCount} dari ${secondaryKeywords.length} LSI yang digunakan. Selipkan sisanya secara natural.`,
       });
-      earnedPoints += 3;
+      earnedPoints += 4;
     } else {
       checks.push({
         id: 'kw-lsi',
@@ -196,18 +195,15 @@ export function calculateSEOAnalysis(
       });
     }
   } else {
-    // If they have a focus keyword but no LSI
-    if (cleanKeyword.length > 0) {
-      checks.push({
-        id: 'kw-lsi',
-        label: 'Belum Ada LSI Keyword',
-        status: 'warning',
-        detail: 'Tambahkan beberapa LSI / secondary keywords (misal sinonim) agar Google lebih mudah memahami konteks.',
-      });
-    }
+    checks.push({
+      id: 'kw-lsi',
+      label: 'Belum Ada LSI Keyword',
+      status: cleanKeyword ? 'warning' : 'warning',
+      detail: 'Tambahkan beberapa LSI / secondary keywords (misal sinonim) agar Google lebih mudah memahami konteks.',
+    });
   }
 
-  // 5. Headings Structure (H2 / H3)
+  // 6. Headings Structure (H2 / H3) (Max 10)
   if (h2Count >= 2) {
     checks.push({
       id: 'headings-ok',
@@ -215,7 +211,7 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: `Memiliki ${h2Count} H2 dan ${h3Count} H3. Struktur hierarki konten baik.`,
     });
-    earnedPoints += 15;
+    earnedPoints += 10;
   } else if (h2Count === 1) {
     checks.push({
       id: 'headings-ok',
@@ -223,7 +219,7 @@ export function calculateSEOAnalysis(
       status: 'warning',
       detail: 'Hanya ada 1 H2. Disarankan menambah setidaknya 2-3 H2 untuk memecah topik.',
     });
-    earnedPoints += 8;
+    earnedPoints += 5;
   } else {
     checks.push({
       id: 'headings-ok',
@@ -233,7 +229,7 @@ export function calculateSEOAnalysis(
     });
   }
 
-  // 6. Content Length (Word Count)
+  // 7. Content Length (Word Count) (Max 20)
   if (wordCount >= targetWords) {
     checks.push({
       id: 'word-count',
@@ -241,7 +237,7 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: `${wordCount.toLocaleString('id-ID')} kata (Target minimal: ${targetWords.toLocaleString('id-ID')}).`,
     });
-    earnedPoints += 15;
+    earnedPoints += 20;
   } else if (wordCount >= Math.floor(targetWords * 0.6)) {
     checks.push({
       id: 'word-count',
@@ -249,7 +245,7 @@ export function calculateSEOAnalysis(
       status: 'warning',
       detail: `${wordCount} kata. Tambah kedalaman pembahasan untuk mencapai target ${targetWords} kata.`,
     });
-    earnedPoints += 8;
+    earnedPoints += 10;
   } else {
     checks.push({
       id: 'word-count',
@@ -257,10 +253,9 @@ export function calculateSEOAnalysis(
       status: 'bad',
       detail: `Baru ${wordCount} kata. Target minimal artikel SEO berkualitas adalah ${targetWords} kata.`,
     });
-    earnedPoints += 3;
   }
 
-  // 7. Meta Description
+  // 8. Meta Description (Max 10)
   const metaDescLen = safeMetaDesc.length;
   if (metaDescLen >= 110 && metaDescLen <= 160) {
     checks.push({
@@ -269,7 +264,7 @@ export function calculateSEOAnalysis(
       status: 'good',
       detail: `${metaDescLen}/160 karakter — Sempurna untuk snippet Google SERP.`,
     });
-    earnedPoints += 15;
+    earnedPoints += 10;
   } else if (metaDescLen > 0 && metaDescLen < 110) {
     checks.push({
       id: 'meta-desc',
@@ -277,7 +272,7 @@ export function calculateSEOAnalysis(
       status: 'warning',
       detail: `${metaDescLen} karakter (Ideal: 120-160 karakter).`,
     });
-    earnedPoints += 7;
+    earnedPoints += 5;
   } else if (metaDescLen > 160) {
     checks.push({
       id: 'meta-desc',
@@ -285,7 +280,7 @@ export function calculateSEOAnalysis(
       status: 'warning',
       detail: `${metaDescLen} karakter. Teks akan terpotong (...) di hasil pencarian Google.`,
     });
-    earnedPoints += 8;
+    earnedPoints += 5;
   } else {
     checks.push({
       id: 'meta-desc',
@@ -295,7 +290,7 @@ export function calculateSEOAnalysis(
     });
   }
 
-  // 8. Gambar Sampul (Featured Image) & Alt Text SEO
+  // 9. Gambar Sampul (Featured Image) & Alt Text SEO (Max 10)
   if (featuredImage) {
     const alt = (featuredImageAlt || '').trim().toLowerCase();
     if (alt.length > 0 && cleanKeyword && alt.includes(cleanKeyword)) {
@@ -313,7 +308,7 @@ export function calculateSEOAnalysis(
         status: 'good',
         detail: `Gambar sampul terpasang dengan Alt Text: "${featuredImageAlt}". Tambahkan kata kunci utama untuk hasil maksimal.`,
       });
-      earnedPoints += 8;
+      earnedPoints += 7;
     } else {
       checks.push({
         id: 'featured-image',
@@ -321,7 +316,7 @@ export function calculateSEOAnalysis(
         status: 'warning',
         detail: 'Gambar sampul sudah ada, namun belum memiliki Alt Text untuk optimasi Google Images.',
       });
-      earnedPoints += 5;
+      earnedPoints += 4;
     }
   } else {
     checks.push({
@@ -332,7 +327,7 @@ export function calculateSEOAnalysis(
     });
   }
 
-  const score = Math.min(100, Math.max(0, earnedPoints));
+  const score = Math.round(Math.min(100, Math.max(0, earnedPoints)));
 
   return {
     score,

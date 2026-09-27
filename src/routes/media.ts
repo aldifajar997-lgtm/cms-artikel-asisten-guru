@@ -142,8 +142,16 @@ media.delete('/:id', authMiddleware, requirePermission('delete_media'), async (c
   // Hapus dari R2
   await c.env.R2.delete(record.r2_key as string)
 
-  // Hapus dari D1
-  await c.env.DB.prepare('DELETE FROM media WHERE id = ?').bind(mediaId).run()
+  // Bersihkan referensi (Orphaned Key Prevention) pada products dan posts
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE products SET cover_image_key = NULL WHERE cover_image_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE products SET detail_image_1_key = NULL WHERE detail_image_1_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE products SET detail_image_2_key = NULL WHERE detail_image_2_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE products SET detail_image_3_key = NULL WHERE detail_image_3_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE products SET file_r2_key = NULL WHERE file_r2_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE posts SET cover_image_key = NULL WHERE cover_image_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('DELETE FROM media WHERE id = ?').bind(mediaId)
+  ])
 
   return c.json({ message: 'File berhasil dihapus.' })
 })
