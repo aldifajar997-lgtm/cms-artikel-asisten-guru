@@ -29,10 +29,12 @@ const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
   const { limit, offset } = getPagination(c, 12, 50)
   const search = c.req.query('search') || ''
+  const categoryId = c.req.query('category_id') || ''
+  const categorySlug = c.req.query('category_slug') || ''
   
   let countQuery = "SELECT count(*) as total FROM products p WHERE p.status = 'published'"
   let dataQuery = `
-    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.description, p.created_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
+    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.created_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
     FROM products p 
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE p.status = 'published'
@@ -43,6 +45,16 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
     countQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
     dataQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
     params.push(`%${search}%`, `%${search}%`)
+  }
+
+  if (categoryId) {
+    countQuery += " AND p.category_id = ?"
+    dataQuery += " AND p.category_id = ?"
+    params.push(categoryId)
+  } else if (categorySlug) {
+    countQuery += " AND p.category_id IN (SELECT id FROM categories WHERE slug = ? AND type = 'product')"
+    dataQuery += " AND c.slug = ?"
+    params.push(categorySlug, categorySlug)
   }
   
   dataQuery += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
@@ -56,7 +68,10 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
   const origin = new URL(c.req.url).origin;
   const mappedResults = results.results.map((p: any) => ({
     ...p,
-    cover_image_url: p.cover_image_key ? `${origin}/api/media/${p.cover_image_key}` : null
+    cover_image_url: p.cover_image_key ? `${origin}/api/media/${p.cover_image_key}` : null,
+    detail_image_1_url: p.detail_image_1_key ? `${origin}/api/media/${p.detail_image_1_key}` : null,
+    detail_image_2_url: p.detail_image_2_key ? `${origin}/api/media/${p.detail_image_2_key}` : null,
+    detail_image_3_url: p.detail_image_3_key ? `${origin}/api/media/${p.detail_image_3_key}` : null
   }))
 
   return c.json({ data: mappedResults, limit, offset, total })
@@ -66,7 +81,7 @@ products.get('/public/:slug', rateLimit(500, 60, 'public_products_detail'), asyn
   const slug = c.req.param('slug')
   
   const product = await c.env.DB.prepare(`
-    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.description, p.status, p.created_at, p.updated_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
+    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.status, p.created_at, p.updated_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
     FROM products p 
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE p.slug = ? AND p.status = 'published'
@@ -82,7 +97,10 @@ products.get('/public/:slug', rateLimit(500, 60, 'public_products_detail'), asyn
   const origin = new URL(c.req.url).origin;
   const mappedProduct = {
     ...product,
-    cover_image_url: product.cover_image_key ? `${origin}/api/media/${product.cover_image_key}` : null
+    cover_image_url: product.cover_image_key ? `${origin}/api/media/${product.cover_image_key}` : null,
+    detail_image_1_url: product.detail_image_1_key ? `${origin}/api/media/${product.detail_image_1_key}` : null,
+    detail_image_2_url: product.detail_image_2_key ? `${origin}/api/media/${product.detail_image_2_key}` : null,
+    detail_image_3_url: product.detail_image_3_key ? `${origin}/api/media/${product.detail_image_3_key}` : null
   }
 
   return c.json(mappedProduct)
@@ -268,6 +286,13 @@ const productSchema = z.object({
   price: z.coerce.number().int().min(0, 'Harga final tidak boleh negatif'),
   original_price: z.coerce.number().int().min(0).optional().nullable(),
   cover_image_key: z.string().optional().nullable(),
+  cover_image_alt: z.string().optional().nullable().transform(val => val ? stripHtml(val) : val),
+  detail_image_1_key: z.string().optional().nullable(),
+  detail_image_1_alt: z.string().optional().nullable().transform(val => val ? stripHtml(val) : val),
+  detail_image_2_key: z.string().optional().nullable(),
+  detail_image_2_alt: z.string().optional().nullable().transform(val => val ? stripHtml(val) : val),
+  detail_image_3_key: z.string().optional().nullable(),
+  detail_image_3_alt: z.string().optional().nullable().transform(val => val ? stripHtml(val) : val),
   file_r2_key: z.string().optional().nullable(),
   category_id: z.string().optional().nullable(),
   meta_title: z.string().optional().nullable(),
@@ -279,7 +304,7 @@ products.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   const user = c.get('user')
   const { limit, offset } = getPagination(c, 50, 100)
 
-  let query = "SELECT id, slug, title, description, price, original_price, cover_image_key, file_r2_key, status, created_at, category_id, meta_title, meta_description, view_count, sales_count FROM products"
+  let query = "SELECT id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, created_at, category_id, meta_title, meta_description, view_count, sales_count FROM products"
   const params: any[] = []
   
   const canSeeAll = ['super_admin', 'Admin', 'Editor']
@@ -323,14 +348,25 @@ products.post('/', requirePermission('create_post'), rateLimit(30, 60, 'product_
   const id = crypto.randomUUID()
   const authorId = user.id
 
+  if (body.category_id) {
+    const catCheck = await c.env.DB.prepare('SELECT type FROM categories WHERE id = ?').bind(body.category_id).first()
+    if (!catCheck || catCheck.type !== 'product') {
+      throw new HTTPException(400, { message: 'Kategori yang dipilih tidak valid untuk produk.' })
+    }
+  }
+
   try {
     await c.env.DB.prepare(`
       INSERT INTO products (
-        id, slug, title, description, price, original_price, cover_image_key, file_r2_key, status, author_id, category_id, meta_title, meta_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, author_id, category_id, meta_title, meta_description
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      id, body.slug, body.title, cleanDescription, body.price, body.original_price || null, 
-      body.cover_image_key || null, body.file_r2_key || null, body.status, authorId,
+      id, body.slug, body.title, cleanDescription, body.price, body.original_price ?? null, 
+      body.cover_image_key || null, body.cover_image_alt ?? null,
+      body.detail_image_1_key || null, body.detail_image_1_alt ?? null,
+      body.detail_image_2_key || null, body.detail_image_2_alt ?? null,
+      body.detail_image_3_key || null, body.detail_image_3_alt ?? null,
+      body.file_r2_key || null, body.status, authorId,
       body.category_id || null, body.meta_title || null, body.meta_description || null
     ).run()
 
@@ -350,8 +386,20 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
 
   const cleanDescription = body.description ? xss(body.description, { whiteList: customWhiteList }) : null
 
-  const existing = await c.env.DB.prepare('SELECT author_id, status, file_r2_key, cover_image_key FROM products WHERE id = ?').bind(targetId).first()
+  if (body.category_id) {
+    const catCheck = await c.env.DB.prepare('SELECT type FROM categories WHERE id = ?').bind(body.category_id).first()
+    if (!catCheck || catCheck.type !== 'product') {
+      throw new HTTPException(400, { message: 'Kategori yang dipilih tidak valid untuk produk.' })
+    }
+  }
+
+  const existing = await c.env.DB.prepare('SELECT author_id, status, file_r2_key, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, slug FROM products WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
+
+  // Blokir edit produk yang sudah diarsipkan (mencegah un-archive bypass & perubahan data)
+  if (existing.status === 'archived') {
+    throw new HTTPException(403, { message: 'Produk yang sudah diarsipkan tidak dapat diedit. Buat produk baru jika diperlukan.' })
+  }
 
   const allowedToEditAny = ['super_admin', 'Admin', 'Editor']
   if (!allowedToEditAny.includes(user.role)) {
@@ -360,10 +408,17 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
     }
   }
 
-  // Logika R2: Hapus file lama jika file diganti atau dihapus (null)
   const newFileKey = body.file_r2_key !== undefined ? body.file_r2_key : existing.file_r2_key
   const newCoverKey = body.cover_image_key !== undefined ? body.cover_image_key : existing.cover_image_key
+  const newCoverAlt = body.cover_image_alt !== undefined ? body.cover_image_alt : existing.cover_image_alt
+  const newDetail1Key = body.detail_image_1_key !== undefined ? body.detail_image_1_key : existing.detail_image_1_key
+  const newDetail1Alt = body.detail_image_1_alt !== undefined ? body.detail_image_1_alt : existing.detail_image_1_alt
+  const newDetail2Key = body.detail_image_2_key !== undefined ? body.detail_image_2_key : existing.detail_image_2_key
+  const newDetail2Alt = body.detail_image_2_alt !== undefined ? body.detail_image_2_alt : existing.detail_image_2_alt
+  const newDetail3Key = body.detail_image_3_key !== undefined ? body.detail_image_3_key : existing.detail_image_3_key
+  const newDetail3Alt = body.detail_image_3_alt !== undefined ? body.detail_image_3_alt : existing.detail_image_3_alt
 
+  // Hapus file R2 lama jika file diganti atau dihapus (null)
   if (existing.file_r2_key && newFileKey !== existing.file_r2_key) {
     await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
   }
@@ -373,11 +428,19 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
     await c.env.DB.prepare(`
       UPDATE products SET
         slug = ?, title = ?, description = ?, price = ?, original_price = ?,
-        cover_image_key = ?, file_r2_key = ?, status = ?, category_id = ?, meta_title = ?, meta_description = ?, updated_at = CURRENT_TIMESTAMP
+        cover_image_key = ?, cover_image_alt = ?,
+        detail_image_1_key = ?, detail_image_1_alt = ?,
+        detail_image_2_key = ?, detail_image_2_alt = ?,
+        detail_image_3_key = ?, detail_image_3_alt = ?,
+        file_r2_key = ?, status = ?, category_id = ?, meta_title = ?, meta_description = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
-      body.slug, body.title, cleanDescription, body.price, body.original_price || null,
-      newCoverKey || null, newFileKey || null, body.status, body.category_id || null, body.meta_title || null, body.meta_description || null, targetId
+      body.slug, body.title, cleanDescription, body.price, body.original_price ?? null,
+      newCoverKey || null, newCoverAlt ?? null,
+      newDetail1Key || null, newDetail1Alt ?? null,
+      newDetail2Key || null, newDetail2Alt ?? null,
+      newDetail3Key || null, newDetail3Alt ?? null,
+      newFileKey || null, body.status, body.category_id || null, body.meta_title || null, body.meta_description || null, targetId
     ).run()
 
     return c.json({ message: 'Produk berhasil diperbarui.' })
@@ -389,25 +452,36 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
   }
 })
 
-products.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'product_write'), async (c) => {
+products.delete('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_write'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
-  const existing = await c.env.DB.prepare('SELECT author_id, file_r2_key FROM products WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, file_r2_key, status FROM products WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
 
   const allowedToDeleteAny = ['super_admin', 'Admin', 'Editor']
   if (!allowedToDeleteAny.includes(user.role)) {
     if (existing.author_id !== user.id) {
-      throw new HTTPException(403, { message: 'Anda tidak berhak mengarsipkan produk ini.' })
+      throw new HTTPException(403, { message: 'Anda tidak berhak menghapus produk ini.' })
     }
   }
 
-  // Soft Delete: Ganti status menjadi archived alih-alih menghapus data fisik
-  // Jangan hapus file di R2 untuk melindungi hak pembeli lama
-  await c.env.DB.prepare("UPDATE products SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(targetId).run()
-
-  return c.json({ message: 'Produk berhasil diarsipkan (Soft Delete).' })
+  if (existing.status === 'draft') {
+    // Hard delete untuk produk draft (hapus file di R2 dan data fisik)
+    if (existing.file_r2_key) {
+      await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
+    }
+    await c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId).run()
+    return c.json({ message: 'Produk draft berhasil dihapus permanen.' })
+  } else if (existing.status === 'archived') {
+    // Sudah diarsipkan, tidak perlu melakukan apa-apa
+    return c.json({ message: 'Produk sudah dalam status arsip.' })
+  } else {
+    // Soft Delete: ubah slug agar membebaskan judul untuk digunakan kembali
+    // Jangan hapus file di R2 untuk melindungi hak pembeli lama
+    await c.env.DB.prepare("UPDATE products SET status = 'archived', slug = slug || '-archived-' || strftime('%s', 'now'), updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(targetId).run()
+    return c.json({ message: 'Produk berhasil diarsipkan (Soft Delete).' })
+  }
 })
 
 export default products

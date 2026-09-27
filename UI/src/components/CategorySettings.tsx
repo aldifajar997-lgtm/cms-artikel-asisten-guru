@@ -51,7 +51,9 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
   const [keywordsText, setKeywordsText] = useState('');
   const [color, setColor] = useState('#0d9488');
   const [parentId, setParentId] = useState<string>('');
+  const [type, setType] = useState<'article' | 'product'>('article');
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'article' | 'product'>('article');
 
   const openAddModal = () => {
     setEditingCategoryId(null);
@@ -61,6 +63,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
     setKeywordsText('');
     setColor('#0d9488');
     setParentId('');
+    setType(activeTab);
     setError(null);
     setIsModalOpen(true);
   };
@@ -73,6 +76,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
     setKeywordsText(cat.targetKeywords.join(', '));
     setColor(cat.color || '#0d9488');
     setParentId(cat.parentId || '');
+    setType(cat.type || 'article');
     setError(null);
     setIsModalOpen(true);
   };
@@ -104,6 +108,7 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
             ...existing,
             name: name.trim(),
             slug: slug.trim() || generateSlug(name),
+            type: type,
             description: description.trim(),
             targetKeywords,
             color,
@@ -117,12 +122,14 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
           id: `cat-${Date.now()}`,
           name: name.trim(),
           slug: slug.trim() || generateSlug(name),
+          type: type,
           description: description.trim(),
           targetKeywords,
           color,
           parentId: parentId || undefined,
           parentName: parentId ? categories.find(c => c.id === parentId)?.name : undefined,
           articleCount: 0,
+          productCount: 0,
         };
         await onAddCategory(newCategory);
         success('Kategori baru berhasil ditambahkan!');
@@ -167,141 +174,256 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
         </div>
       </div>
 
-      {/* Categories Grouped by Silo */}
+      {/* Tabs */}
+      <div className="flex space-x-1 bg-slate-200/50 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab('article')}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'article'
+              ? 'bg-white text-teal-700 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Kategori Artikel
+        </button>
+        <button
+          onClick={() => setActiveTab('product')}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'product'
+              ? 'bg-white text-teal-700 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Kategori Produk
+        </button>
+      </div>
+
+      {/* Categories Rendering */}
       <div className="space-y-12">
-        {categories
-          .filter((c) => !c.parentId)
-          .map((parent) => {
-            const children = categories.filter((c) => c.parentId === parent.id);
+        {activeTab === 'article' ? (
+          /* HIERARCHICAL RENDERING FOR ARTICLES */
+          categories
+            .filter((c) => !c.parentId && (c.type || 'article') === 'article')
+            .map((parent) => {
+              const children = categories.filter((c) => c.parentId === parent.id);
 
-            return (
-              <div key={parent.id} className="space-y-4">
-                {/* Header Silo */}
-                <div className="flex items-center space-x-3 border-b border-slate-200 pb-3">
-                  <div 
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm" 
-                    style={{ backgroundColor: parent.color || '#0d9488' }}
-                  >
-                    <Layers className="w-4 h-4 text-white" />
+              return (
+                <div key={parent.id} className="space-y-4">
+                  {/* Header Silo */}
+                  <div className="flex items-center space-x-3 border-b border-slate-200 pb-3">
+                    <div 
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm" 
+                      style={{ backgroundColor: parent.color || '#0d9488' }}
+                    >
+                      <Layers className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
+                        Silo: {parent.name}
+                      </h2>
+                      <p className="text-[11px] text-slate-500 font-medium">Topik Pilar Utama</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
-                      Silo: {parent.name}
-                    </h2>
-                    <p className="text-[11px] text-slate-500 font-medium">Topik Pilar Utama</p>
-                  </div>
-                </div>
 
-                {/* Grid per Silo */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {[parent, ...children].map((cat) => {
-                    const isParent = cat.id === parent.id;
-                    return (
-                      <div
-                        key={cat.id}
-                        className={`bg-white rounded-2xl p-5 transition-all flex flex-col justify-between ${
-                          isParent 
-                            ? 'border-2 border-teal-500 shadow-md shadow-teal-500/10' 
-                            : 'border-l-4 border-l-slate-300 border-y border-y-slate-100 border-r border-r-slate-100 shadow-xs hover:border-l-teal-400'
-                        }`}
-                      >
-                        <div className="space-y-3">
-                          {/* Category Title & Badge */}
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center space-x-2.5">
-                              <div
-                                className="w-3.5 h-3.5 rounded-full shrink-0"
-                                style={{ backgroundColor: cat.color || '#0d9488' }}
-                              />
-                              <h2 className={`font-bold text-slate-800 ${isParent ? 'text-lg' : 'text-base'}`}>
-                                {cat.name}
-                              </h2>
+                  {/* Grid per Silo */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {[parent, ...children].map((cat) => {
+                      const isParent = cat.id === parent.id;
+                      return (
+                        <div
+                          key={cat.id}
+                          className={`bg-white rounded-2xl p-5 transition-all flex flex-col justify-between ${
+                            isParent 
+                              ? 'border-2 border-teal-500 shadow-md shadow-teal-500/10' 
+                              : 'border-l-4 border-l-slate-300 border-y border-y-slate-100 border-r border-r-slate-100 shadow-xs hover:border-l-teal-400'
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            {/* Category Title & Badge */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center space-x-2.5">
+                                <div
+                                  className="w-3.5 h-3.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: cat.color || '#0d9488' }}
+                                />
+                                <h2 className={`font-bold text-slate-800 ${isParent ? 'text-lg' : 'text-base'}`}>
+                                  {cat.name}
+                                </h2>
+                              </div>
+                              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
+                                {cat.articleCount || 0} artikel
+                              </span>
                             </div>
-                            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
-                              {cat.articleCount || 0} artikel
-                            </span>
-                          </div>
-                          
-                          {/* Type Badge */}
-                          {isParent ? (
-                            <div className="inline-block text-[10px] text-teal-800 font-bold bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-md w-fit">
-                              ★ Pilar Utama
+                            
+                            {/* Type Badge */}
+                            {isParent ? (
+                              <div className="inline-block text-[10px] text-teal-800 font-bold bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-md w-fit">
+                                ★ Pilar Utama
+                              </div>
+                            ) : (
+                              <div className="flex items-center text-[10px] text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md w-fit">
+                                <Layers className="w-3 h-3 mr-1" />
+                                Sub-kategori
+                              </div>
+                            )}
+
+                            {/* Slug */}
+                            <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
+                              /{cat.slug}
                             </div>
-                          ) : (
-                            <div className="flex items-center text-[10px] text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md w-fit">
-                              <Layers className="w-3 h-3 mr-1" />
-                              Sub-kategori
-                            </div>
-                          )}
 
-                          {/* Slug */}
-                          <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
-                            /{cat.slug}
-                          </div>
-
-                          {/* Description */}
-                          <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
-                            {cat.description || 'Tidak ada deskripsi kategori.'}
-                          </p>
-
-                          {/* Target Keywords / LSI */}
-                          <div className="space-y-1.5 pt-2">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Target Kata Kunci Pilar:
+                            {/* Description */}
+                            <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+                              {cat.description || 'Tidak ada deskripsi kategori.'}
                             </p>
-                            <div className="flex flex-wrap gap-1">
-                              {cat.targetKeywords.length > 0 ? (
-                                cat.targetKeywords.map((kw, i) => (
-                                  <span
-                                    key={i}
-                                    className="text-[11px] px-2.5 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-100 font-medium"
-                                  >
-                                    {kw}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-xs text-slate-400 italic">Belum ada target kata kunci</span>
-                              )}
+
+                            {/* Target Keywords / LSI */}
+                            <div className="space-y-1.5 pt-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Target Kata Kunci Pilar:
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {cat.targetKeywords.length > 0 ? (
+                                  cat.targetKeywords.map((kw, i) => (
+                                    <span
+                                      key={i}
+                                      className="text-[11px] px-2.5 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-100 font-medium"
+                                    >
+                                      {kw}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">Belum ada target kata kunci</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Footer Actions */}
+                          <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span className="text-slate-400">Silo Kluster SEO</span>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => openEditModal(cat)}
+                                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Kategori"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const confirmed = await showConfirm('Hapus Kategori', `Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`, 'Hapus', 'Batal');
+                                  if (confirmed) {
+                                    try {
+                                      await onDeleteCategory(cat.id);
+                                    } catch (err: any) {
+                                      showError(handleApiError(err));
+                                    }
+                                  }
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus Kategori"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
                         </div>
-
-                        {/* Footer Actions */}
-                        <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Silo Kluster SEO</span>
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={() => openEditModal(cat)}
-                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-                              title="Edit Kategori"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={async () => {
-                                const confirmed = await showConfirm('Hapus Kategori', `Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`, 'Hapus', 'Batal');
-                                if (confirmed) {
-                                  try {
-                                    await onDeleteCategory(cat.id);
-                                  } catch (err: any) {
-                                    showError(handleApiError(err));
-                                  }
-                                }
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus Kategori"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+        ) : (
+          /* FLAT RENDERING FOR PRODUCTS */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {categories
+              .filter((c) => (c.type || 'article') === 'product')
+              .map((cat) => (
+                <div
+                  key={cat.id}
+                  className="bg-white rounded-2xl p-5 transition-all flex flex-col justify-between border border-slate-200 shadow-sm hover:border-teal-400 hover:shadow-md hover:shadow-teal-500/10"
+                >
+                  <div className="space-y-3">
+                    {/* Category Title & Badge */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-2.5">
+                        <div
+                          className="w-3.5 h-3.5 rounded-full shrink-0"
+                          style={{ backgroundColor: cat.color || '#0d9488' }}
+                        />
+                        <h2 className="font-bold text-slate-800 text-lg">
+                          {cat.name}
+                        </h2>
+                      </div>
+                      <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
+                        {cat.productCount || 0} produk
+                      </span>
+                    </div>
+
+                    {/* Type Badge */}
+                    <div className="inline-block text-[10px] text-teal-800 font-bold bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-md w-fit">
+                      Kategori Produk
+                    </div>
+
+                    {/* Slug */}
+                    <div className="text-xs font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
+                      /{cat.slug}
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+                      {cat.description || 'Tidak ada deskripsi kategori.'}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center space-x-2 pt-4 mt-4 border-t border-slate-100">
+                    <button
+                      onClick={() => openEditModal(cat)}
+                      className="flex-1 flex justify-center items-center space-x-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const confirmed = await showConfirm('Hapus Kategori', `Apakah Anda yakin ingin menghapus kategori "${cat.name}"?`, 'Hapus', 'Batal');
+                        if (confirmed) {
+                          try {
+                            await onDeleteCategory(cat.id);
+                          } catch (err: any) {
+                            showError(handleApiError(err));
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center"
+                      title="Hapus Kategori"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {((activeTab === 'article' && categories.filter((c) => !c.parentId && (c.type || 'article') === 'article').length === 0) || 
+          (activeTab === 'product' && categories.filter((c) => (c.type || 'article') === 'product').length === 0)) && (
+          <div className="text-center py-16 space-y-3">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center">
+              <Layers className="w-8 h-8 text-slate-300" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-600">
+              Belum ada kategori {activeTab === 'product' ? 'produk' : 'artikel'}
+            </h3>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              Klik tombol "Tambah Kategori Baru" untuk membuat kategori {activeTab === 'product' ? 'produk digital' : 'artikel blog'} pertama Anda.
+            </p>
+          </div>
+        )}
       </div>
 
       {hasMore && onLoadMore && (
@@ -373,6 +495,54 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
               </div>
 
               <div>
+                <label className="font-semibold text-slate-700 block mb-1">Tipe Kategori</label>
+                {(() => {
+                  const isInUse = editingCategoryId ? (() => {
+                    const cat = categories.find(c => c.id === editingCategoryId);
+                    if (!cat) return false;
+                    return (cat.type === 'article' && (cat.articleCount || 0) > 0) ||
+                           (cat.type === 'product' && (cat.productCount || 0) > 0);
+                  })() : false;
+                  return (
+                    <>
+                      <div className="flex gap-4">
+                        <label className={`flex items-center space-x-2 ${isInUse ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                          <input
+                            type="radio"
+                            name="type"
+                            value="article"
+                            checked={type === 'article'}
+                            onChange={() => { setType('article'); setParentId(''); }}
+                            disabled={isInUse}
+                            className="text-teal-600 focus:ring-teal-500"
+                          />
+                          <span className="text-slate-700 font-medium">Artikel (Blog)</span>
+                        </label>
+                        <label className={`flex items-center space-x-2 ${isInUse ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                          <input
+                            type="radio"
+                            name="type"
+                            value="product"
+                            checked={type === 'product'}
+                            onChange={() => { setType('product'); setParentId(''); }}
+                            disabled={isInUse}
+                            className="text-teal-600 focus:ring-teal-500"
+                          />
+                          <span className="text-slate-700 font-medium">Produk Digital</span>
+                        </label>
+                      </div>
+                      {isInUse && (
+                        <p className="text-[10px] text-amber-600 mt-1 font-medium">
+                          <AlertCircle className="w-3 h-3 inline mr-1" />
+                          Tipe tidak bisa diubah karena kategori ini sudah memiliki konten terkait.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div>
                 <label className="font-semibold text-slate-700 block mb-1">
                   Target Kata Kunci Pilar (Pisahkan dengan koma)
                 </label>
@@ -385,35 +555,37 @@ export const CategorySettings: React.FC<CategorySettingsProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  Kategori Induk (Opsional)
-                </label>
-                {(() => {
-                  const hasChildren = editingCategoryId ? categories.some(c => c.parentId === editingCategoryId) : false;
-                  return (
-                    <>
-                      <select
-                        value={parentId}
-                        onChange={(e) => setParentId(e.target.value)}
-                        disabled={hasChildren}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">Tidak Ada (Jadikan Kategori Pilar)</option>
-                        {categories.filter(c => !c.parentId && c.id !== editingCategoryId).map(parentCat => (
-                          <option key={parentCat.id} value={parentCat.id}>{parentCat.name}</option>
-                        ))}
-                      </select>
-                      {hasChildren && (
-                        <p className="text-[10px] text-amber-600 mt-1 font-medium">
-                          <AlertCircle className="w-3 h-3 inline mr-1" />
-                          Kategori ini memiliki sub-kategori, sehingga tidak bisa dijadikan sub-kategori dari kategori lain.
-                        </p>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
+              {type === 'article' && (
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Kategori Induk (Opsional)
+                  </label>
+                  {(() => {
+                    const hasChildren = editingCategoryId ? categories.some(c => c.parentId === editingCategoryId) : false;
+                    return (
+                      <>
+                        <select
+                          value={parentId}
+                          onChange={(e) => setParentId(e.target.value)}
+                          disabled={hasChildren}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Tidak Ada (Jadikan Kategori Pilar)</option>
+                          {categories.filter(c => !c.parentId && c.id !== editingCategoryId && (c.type || 'article') === type).map(parentCat => (
+                            <option key={parentCat.id} value={parentCat.id}>{parentCat.name}</option>
+                          ))}
+                        </select>
+                        {hasChildren && (
+                          <p className="text-[10px] text-amber-600 mt-1 font-medium">
+                            <AlertCircle className="w-3 h-3 inline mr-1" />
+                            Kategori ini memiliki sub-kategori, sehingga tidak bisa dijadikan sub-kategori dari kategori lain.
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">

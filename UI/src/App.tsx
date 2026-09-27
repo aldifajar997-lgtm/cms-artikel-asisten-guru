@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Article, Category, UserProfile, Tag, ArticleStats } from './types';
+import { Article, Category, UserProfile, Tag, ArticleStats, Product } from './types';
 import { Navigation, ActiveTab } from './components/Navigation';
 import { ArticleEditor } from './components/ArticleEditor';
 import { ArticleList } from './components/ArticleList';
@@ -8,6 +8,8 @@ import { ProfileSettings } from './components/ProfileSettings';
 import { UserSettings } from './components/UserSettings';
 import { SiteSettings } from './components/SiteSettings';
 import { Glosarium } from './components/Glosarium';
+import { ProductList } from './components/ProductList';
+import { ProductEditor } from './components/ProductEditor';
 import { generateSlug } from './utils/seoAnalyzer';
 import { Dashboard } from './components/Dashboard';
 import { Login } from './components/Login';
@@ -63,6 +65,13 @@ export default function App() {
     portfolioUrl: ''
   });
   const [currentArticle, setCurrentArticle] = useState<Article | null>(null);
+
+  // Product state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
+  const [hasMoreProducts, setHasMoreProducts] = useState<boolean>(false);
+  const [productOffset, setProductOffset] = useState<number>(0);
+  const [isLoadingMoreProducts, setIsLoadingMoreProducts] = useState<boolean>(false);
 
   const fetchGlobalStats = async () => {
     try {
@@ -139,6 +148,25 @@ export default function App() {
     }
   };
 
+  const fetchProductsList = async (isLoadMore = false, overrideOffset?: number) => {
+    const offset = isLoadMore ? (overrideOffset !== undefined ? overrideOffset : productOffset) : 0;
+    try {
+      const res = await api.get(`/products/admin/all?limit=50&offset=${offset}`);
+      if (res.data?.data) {
+        const fetchedProducts = res.data.data;
+        if (isLoadMore) {
+          setProducts(prev => [...prev, ...fetchedProducts]);
+        } else {
+          setProducts(fetchedProducts);
+        }
+        setHasMoreProducts(fetchedProducts.length === 50);
+        setProductOffset(offset + 50);
+      }
+    } catch (err) {
+      console.error('Failed to fetch products', err);
+    }
+  };
+
 
   // Initialization: Check URL tokens and Auth status
   useEffect(() => {
@@ -211,6 +239,7 @@ export default function App() {
     // Fetch stats and initial articles
     await fetchGlobalStats();
     await fetchArticlesList(currentFilters);
+    await fetchProductsList();
 
     // Fetch categories
     try {
@@ -220,10 +249,12 @@ export default function App() {
           id: c.id,
           name: c.name,
           slug: c.slug,
+          type: c.type || 'article',
           description: c.description || '',
-          targetKeywords: c.target_keywords ? JSON.parse(c.target_keywords) : [],
+          targetKeywords: Array.isArray(c.target_keywords) ? c.target_keywords : (c.target_keywords ? JSON.parse(c.target_keywords) : []),
           color: c.color || '#0d9488',
           articleCount: c.article_count || 0,
+          productCount: c.product_count || 0,
           parentId: c.parent_id || undefined,
           parentName: c.parent_name || undefined
         }));
@@ -258,10 +289,12 @@ export default function App() {
           id: c.id,
           name: c.name,
           slug: c.slug,
+          type: c.type || 'article',
           description: c.description || '',
-          targetKeywords: c.target_keywords ? JSON.parse(c.target_keywords) : [],
+          targetKeywords: Array.isArray(c.target_keywords) ? c.target_keywords : (c.target_keywords ? JSON.parse(c.target_keywords) : []),
           color: c.color || '#0d9488',
           articleCount: c.article_count || 0,
+          productCount: c.product_count || 0,
           parentId: c.parent_id || undefined,
           parentName: c.parent_name || undefined
         }));
@@ -497,12 +530,130 @@ export default function App() {
     }
   };
 
+  // --- Product Handlers ---
+  const handleLoadMoreProducts = async () => {
+    if (isLoadingMoreProducts || !hasMoreProducts) return;
+    setIsLoadingMoreProducts(true);
+    await fetchProductsList(true, productOffset);
+    setIsLoadingMoreProducts(false);
+  };
+
+  const handleNewProduct = () => {
+    const freshProduct: Product = {
+      id: `prod-${Date.now()}`,
+      slug: '',
+      title: '',
+      description: '',
+      price: 0,
+      status: 'draft',
+      created_at: new Date().toISOString(),
+    };
+    setCurrentProduct(freshProduct);
+    setActiveTab('buat-produk');
+  };
+
+  const handleSelectProductFromList = async (product: Product) => {
+    if ((activeTab === 'buat-artikel' || activeTab === 'buat-produk') && hasUnsavedChanges) {
+      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+      if (!confirmed) return;
+    }
+
+    try {
+      const res = await api.get(`/products/admin/${product.id}`);
+      if (res.data?.data) {
+        setCurrentProduct(res.data.data);
+      } else {
+        setCurrentProduct(product);
+      }
+    } catch (err) {
+      console.error('Gagal mengambil detail produk:', err);
+      warning('Gagal mengambil detail produk. Terbuka dengan data awal.');
+      setCurrentProduct(product);
+    }
+    setActiveTab('buat-produk');
+  };
+
+  const handleSaveProduct = async (savedProduct: Product) => {
+    try {
+      const payload = {
+        title: savedProduct.title,
+        slug: savedProduct.slug,
+        description: savedProduct.description,
+        price: savedProduct.price,
+        original_price: savedProduct.original_price,
+        cover_image_key: savedProduct.cover_image_key,
+        file_r2_key: savedProduct.file_r2_key,
+        status: savedProduct.status,
+        category_id: savedProduct.category_id,
+        meta_title: savedProduct.meta_title,
+        meta_description: savedProduct.meta_description,
+      };
+
+      const isNew = savedProduct.id.startsWith('prod-');
+
+      if (isNew) {
+        const response = await api.post('/products', payload);
+        const newId = response.data.id;
+        savedProduct.id = newId;
+        setProducts(prev => [savedProduct, ...prev]);
+      } else {
+        await api.put(`/products/${savedProduct.id}`, payload);
+        setProducts(prev => prev.map(p => p.id === savedProduct.id ? savedProduct : p));
+      }
+      
+      setCurrentProduct(savedProduct);
+    } catch (err: any) {
+      console.error('Gagal menyimpan produk:', err);
+      showError(handleApiError(err));
+      throw err;
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    const product = products.find(p => p.id === id);
+    const isDraft = product?.status === 'draft';
+
+    const title = isDraft ? 'Hapus Permanen Produk' : 'Arsipkan Produk';
+    const message = isDraft 
+      ? 'Hapus produk draft ini secara permanen? File dan data akan dihapus selamanya.' 
+      : 'Arsipkan produk ini? Produk tidak akan tampil di toko, namun file tetap ada untuk pembeli lama.';
+    const confirmBtn = isDraft ? 'Hapus Permanen' : 'Arsipkan';
+
+    const confirmed = await showConfirm(title, message, confirmBtn, 'Batal');
+    if (confirmed) {
+      if (!id.startsWith('prod-')) {
+        try {
+          const res = await api.delete(`/products/${id}`);
+          if (res.data?.message?.includes('permanen')) {
+            // Hard delete
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+          } else {
+            // Soft delete
+            setProducts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'archived' } : p));
+          }
+        } catch (err: any) {
+          console.error('Gagal menghapus produk:', err);
+          showError('Gagal menghapus produk. ' + handleApiError(err));
+          return;
+        }
+      } else {
+        // Belum tersimpan di backend
+        setProducts((prev) => prev.filter((p) => p.id !== id));
+      }
+      
+      if (currentProduct?.id === id) {
+        handleNewProduct();
+      }
+    }
+  };
+
   // Handle Category operations
   const handleAddCategory = async (newCat: Category) => {
     try {
       const payload = {
         name: newCat.name,
         slug: newCat.slug,
+        type: newCat.type || 'article',
         description: newCat.description,
         target_keywords: newCat.targetKeywords,
         color: newCat.color,
@@ -521,6 +672,7 @@ export default function App() {
       const payload = {
         name: updatedCat.name,
         slug: updatedCat.slug,
+        type: updatedCat.type || 'article',
         description: updatedCat.description,
         target_keywords: updatedCat.targetKeywords,
         color: updatedCat.color,
@@ -543,7 +695,17 @@ export default function App() {
         throw err;
       }
     }
-    setCategories(categories.filter((c) => c.id !== catId));
+    // Hapus dari state lokal dan bersihkan referensi di artikel/produk
+    setCategories(prev => {
+      // Reset parentId sub-kategori yang induknya dihapus
+      return prev.filter((c) => c.id !== catId).map(c => 
+        c.parentId === catId ? { ...c, parentId: undefined, parentName: undefined } : c
+      );
+    });
+    // Reset categoryId di artikel lokal yang mengacu ke kategori ini
+    setArticles(prev => prev.map(a => a.categoryId === catId ? { ...a, categoryId: '' } : a));
+    // Reset category_id di produk lokal yang mengacu ke kategori ini
+    setProducts(prev => prev.map(p => p.category_id === catId ? { ...p, category_id: null } : p));
   };
 
   // Handle Profile update
@@ -616,12 +778,16 @@ export default function App() {
           handleLogout();
         }}
         onSelectTab={async (tab) => {
-          if (activeTab === 'buat-artikel' && tab !== 'buat-artikel' && hasUnsavedChanges) {
+          const isEditor = activeTab === 'buat-artikel' || activeTab === 'buat-produk';
+          const isChangingTab = tab !== activeTab;
+          if (isEditor && isChangingTab && hasUnsavedChanges) {
             const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
             if (!confirmed) return;
           }
           if (tab === 'buat-artikel' && !currentArticle) {
             handleNewArticle();
+          } else if (tab === 'buat-produk' && !currentProduct) {
+            handleNewProduct();
           } else {
             setActiveTab(tab);
           }
@@ -672,6 +838,28 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
                   <p className="text-slate-500">Memuat editor...</p>
+                </div>
+              )
+            ) : activeTab === 'buat-produk' ? (
+              currentProduct ? (
+                <ProductEditor
+                  key={currentProduct.id}
+                  product={currentProduct}
+                  categories={categories}
+                  onSave={handleSaveProduct}
+                  onBack={async () => {
+                    if (hasUnsavedChanges) {
+                      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+                      if (!confirmed) return;
+                    }
+                    setActiveTab('list-produk');
+                  }}
+                  setHasUnsavedChanges={setHasUnsavedChanges}
+                />
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
+                  <p className="text-slate-500">Memuat editor produk...</p>
                 </div>
               )
             ) : (
@@ -730,6 +918,18 @@ export default function App() {
 
                   {activeTab === 'glosarium' && (
                     <Glosarium />
+                  )}
+
+                  {activeTab === 'list-produk' && (
+                    <ProductList
+                      products={products}
+                      hasMore={hasMoreProducts}
+                      isLoadingMore={isLoadingMoreProducts}
+                      onLoadMore={handleLoadMoreProducts}
+                      onSelectProduct={handleSelectProductFromList}
+                      onNewProduct={handleNewProduct}
+                      onDeleteProduct={handleDeleteProduct}
+                    />
                   )}
                 </div>
               </div>

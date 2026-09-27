@@ -452,8 +452,8 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                   onChange={(e) => setCategoryId(e.target.value)}
                   className="font-medium text-slate-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer hover:text-teal-600 py-1"
                 >
-                  {categories.filter(c => !c.parentId).map((parentCat) => {
-                    const subCats = categories.filter(c => c.parentId === parentCat.id);
+                  {categories.filter(c => !c.parentId && (!c.type || c.type === 'article')).map((parentCat) => {
+                    const subCats = categories.filter(c => c.parentId === parentCat.id && (!c.type || c.type === 'article'));
                     return (
                       <optgroup key={parentCat.id} label={parentCat.name}>
                         {categoryId == parentCat.id && (
@@ -682,34 +682,36 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                     <div>
                       <div className="flex items-center justify-between text-xs mb-1">
                         <label className="font-bold text-slate-700">Meta Title Tag</label>
-                        <span className={`text-[10px] font-bold ${(metaTitle || title).length >= 45 && (metaTitle || title).length <= 60 ? 'text-teal-600' : 'text-slate-400'
+                        <span className={`text-[10px] font-bold ${(metaTitle || title).length > 60 ? 'text-rose-500' : (metaTitle || title).length >= 45 ? 'text-teal-600' : 'text-slate-400'
                           }`}>
                           {(metaTitle || title).length}/60
                         </span>
                       </div>
                       <input
                         type="text"
+                        maxLength={60}
                         value={metaTitle}
                         onChange={(e) => setMetaTitle(e.target.value)}
                         placeholder={title || 'Judul hasil pencarian...'}
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:bg-white placeholder:text-slate-300"
+                        className={`w-full text-xs px-3 py-2 bg-slate-50 border ${(metaTitle || title).length > 60 ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-teal-500'} rounded-lg focus:ring-1 focus:bg-white placeholder:text-slate-300`}
                       />
                     </div>
 
                     <div>
                       <div className="flex items-center justify-between text-xs mb-1">
                         <label className="font-bold text-slate-700">Meta Description</label>
-                        <span className={`text-[10px] font-bold ${(metaDescription || excerptFallback(content)).length >= 120 && (metaDescription || excerptFallback(content)).length <= 160 ? 'text-teal-600' : 'text-slate-400'
+                        <span className={`text-[10px] font-bold ${(metaDescription || excerptFallback(content)).length > 160 ? 'text-rose-500' : (metaDescription || excerptFallback(content)).length >= 120 ? 'text-teal-600' : 'text-slate-400'
                           }`}>
                           {(metaDescription || excerptFallback(content)).length}/160
                         </span>
                       </div>
                       <textarea
                         rows={3}
+                        maxLength={160}
                         value={metaDescription}
                         onChange={(e) => setMetaDescription(e.target.value)}
                         placeholder={excerptFallback(content) || 'Ringkasan 120-160 karakter...'}
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:bg-white resize-none placeholder:text-slate-300"
+                        className={`w-full text-xs px-3 py-2 bg-slate-50 border ${(metaDescription || excerptFallback(content)).length > 160 ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-teal-500'} rounded-lg focus:ring-1 focus:bg-white resize-none placeholder:text-slate-300`}
                       />
                     </div>
 
@@ -743,8 +745,8 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                       onChange={(e) => setCategoryId(e.target.value)}
                       className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 font-medium text-slate-800"
                     >
-                      {categories.filter(c => !c.parentId).map((parentCat) => {
-                        const subCats = categories.filter(c => c.parentId === parentCat.id);
+                      {categories.filter(c => !c.parentId && (!c.type || c.type === 'article')).map((parentCat) => {
+                        const subCats = categories.filter(c => c.parentId === parentCat.id && (!c.type || c.type === 'article'));
                         return (
                           <optgroup key={parentCat.id} label={parentCat.name}>
                             {categoryId == parentCat.id && (

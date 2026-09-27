@@ -1,0 +1,14 @@
+{
+  "0": "Terminologi Dasar",
+  "1": "App.tsx",
+  "2": "types.ts",
+  "3": "dependencies",
+  "4": "devDependencies",
+  "5": "compilerOptions",
+  "6": "ToastContext.tsx",
+  "7": "package.json",
+  "8": "ProductEditor.tsx",
+  "9": "update.cjs",
+  "10": "vite-env.d.ts",
+  "11": "vite.config.ts"
+}

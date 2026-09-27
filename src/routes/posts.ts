@@ -390,6 +390,13 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
   const publishedAt = body.status === 'published' ? new Date().toISOString() : null
   const authorId = user.id
 
+  if (body.category_id) {
+    const catCheck = await c.env.DB.prepare('SELECT type FROM categories WHERE id = ?').bind(body.category_id).first()
+    if (!catCheck || catCheck.type !== 'article') {
+      throw new HTTPException(400, { message: 'Kategori yang dipilih tidak valid untuk artikel.' })
+    }
+  }
+
   try {
     const stmts = []
     stmts.push(
@@ -416,6 +423,7 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
     }
 
     await c.env.DB.batch(stmts)
+
     return c.json({ message: 'Artikel berhasil dibuat.', id })
   } catch (error: any) {
     if (error.message && error.message.includes('FOREIGN KEY constraint failed')) {
@@ -431,7 +439,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   const body = c.req.valid('json')
 
   // Verifikasi Ownership
-  const existing = await c.env.DB.prepare('SELECT author_id, slug FROM posts WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, slug, status FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
 
   const allowedToEditAny = ['super_admin', 'Admin', 'Editor']
@@ -444,6 +452,13 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   // Sanitasi HTML (Stored XSS Protection) dengan dukungan Iframe untuk Embed dan Style
   const cleanContent = body.content ? xss(body.content, { whiteList: customWhiteList }) : null
   const publishedAt = body.status === 'published' ? new Date().toISOString() : null
+
+  if (body.category_id) {
+    const catCheck = await c.env.DB.prepare('SELECT type FROM categories WHERE id = ?').bind(body.category_id).first()
+    if (!catCheck || catCheck.type !== 'article') {
+      throw new HTTPException(400, { message: 'Kategori yang dipilih tidak valid untuk artikel.' })
+    }
+  }
 
   try {
     const stmts = []
@@ -494,12 +509,12 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   }
 })
 
-posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_write'), async (c) => {
+posts.delete('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
   // Selalu cek keberadaan resource terlebih dahulu
-  const existing = await c.env.DB.prepare('SELECT author_id, slug FROM posts WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, slug, status FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) {
     throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
   }

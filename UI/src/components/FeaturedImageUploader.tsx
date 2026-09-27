@@ -91,10 +91,10 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
         <div className="space-y-4">
           <div className="relative w-full aspect-video sm:h-80 rounded-2xl overflow-hidden bg-slate-100 group border border-slate-200">
             <img src={imageUrl} alt={altText} className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <div className="absolute top-4 right-4 z-10">
               <button
                 onClick={onRemoveImage}
-                className="bg-white/90 text-rose-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-white transition-colors flex items-center gap-2"
+                className="bg-white/95 text-rose-600 px-3 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-rose-50 hover:text-rose-700 transition-colors flex items-center gap-2 border border-rose-100 backdrop-blur-sm"
               >
                 <X className="w-4 h-4" />
                 Hapus Cover
