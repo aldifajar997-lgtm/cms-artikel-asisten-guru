@@ -22,6 +22,13 @@ const stripHtml = (val: string) => val ? val.replace(/<[^>]*>?/gm, '').trim() : 
 
 const products = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// Ubah URL media relatif (/api/media/...) menjadi absolut agar bisa dipakai frontend eksternal
+const toAbsoluteMediaUrl = (origin: string, url: unknown): string | null => {
+  if (!url || typeof url !== 'string') return null
+  if (/^https?:\/\//i.test(url)) return url
+  return url.startsWith('/') ? `${origin}${url}` : `${origin}/${url}`
+}
+
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 // --- PUBLIC & HUB ROUTES ---
@@ -31,39 +38,52 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
   const search = c.req.query('search') || ''
   const categoryId = c.req.query('category_id') || ''
   const categorySlug = c.req.query('category_slug') || ''
+  const sellerId = c.req.query('seller_id') || ''
   
   let countQuery = "SELECT count(*) as total FROM products p WHERE p.status = 'published'"
   let dataQuery = `
-    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.created_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
+    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.created_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, p.average_rating, p.total_reviews, c.name as category_name, c.slug as category_slug, u.id as seller_id, u.name as seller_name, u.avatar_url as seller_avatar_url, u.cover_url as seller_cover_url
     FROM products p 
     LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN users u ON p.author_id = u.id
     WHERE p.status = 'published'
   `
-  const params: any[] = []
+  const countParams: any[] = []
+  const dataParams: any[] = []
   
   if (search) {
     countQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
     dataQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
-    params.push(`%${search}%`, `%${search}%`)
+    countParams.push(`%${search}%`, `%${search}%`)
+    dataParams.push(`%${search}%`, `%${search}%`)
   }
 
   if (categoryId) {
     countQuery += " AND p.category_id = ?"
     dataQuery += " AND p.category_id = ?"
-    params.push(categoryId)
+    countParams.push(categoryId)
+    dataParams.push(categoryId)
   } else if (categorySlug) {
     countQuery += " AND p.category_id IN (SELECT id FROM categories WHERE slug = ? AND type = 'product')"
     dataQuery += " AND c.slug = ?"
-    params.push(categorySlug, categorySlug)
+    countParams.push(categorySlug)
+    dataParams.push(categorySlug)
+  }
+
+  if (sellerId) {
+    countQuery += " AND p.author_id = ?"
+    dataQuery += " AND p.author_id = ?"
+    countParams.push(sellerId)
+    dataParams.push(sellerId)
   }
   
   dataQuery += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
   
-  const countResult = await c.env.DB.prepare(countQuery).bind(...params).first<{total: number}>()
+  const countResult = await c.env.DB.prepare(countQuery).bind(...countParams).first<{total: number}>()
   const total = countResult?.total || 0
   
-  params.push(limit, offset)
-  const results = await c.env.DB.prepare(dataQuery).bind(...params).all()
+  dataParams.push(limit, offset)
+  const results = await c.env.DB.prepare(dataQuery).bind(...dataParams).all()
   
   const origin = new URL(c.req.url).origin;
   const mappedResults = results.results.map((p: any) => ({
@@ -71,7 +91,9 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
     cover_image_url: p.cover_image_key ? `${origin}/api/media/${p.cover_image_key}` : null,
     detail_image_1_url: p.detail_image_1_key ? `${origin}/api/media/${p.detail_image_1_key}` : null,
     detail_image_2_url: p.detail_image_2_key ? `${origin}/api/media/${p.detail_image_2_key}` : null,
-    detail_image_3_url: p.detail_image_3_key ? `${origin}/api/media/${p.detail_image_3_key}` : null
+    detail_image_3_url: p.detail_image_3_key ? `${origin}/api/media/${p.detail_image_3_key}` : null,
+    seller_avatar_url: toAbsoluteMediaUrl(origin, p.seller_avatar_url),
+    seller_cover_url: toAbsoluteMediaUrl(origin, p.seller_cover_url)
   }))
 
   return c.json({ data: mappedResults, limit, offset, total })
@@ -81,13 +103,26 @@ products.get('/public/:slug', rateLimit(500, 60, 'public_products_detail'), asyn
   const slug = c.req.param('slug')
   
   const product = await c.env.DB.prepare(`
-    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.status, p.created_at, p.updated_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, c.name as category_name, c.slug as category_slug
+    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt, p.description, p.status, p.created_at, p.updated_at, p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, p.average_rating, p.total_reviews, c.name as category_name, c.slug as category_slug, u.id as seller_id, u.name as seller_name, u.avatar_url as seller_avatar_url, u.cover_url as seller_cover_url
     FROM products p 
     LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN users u ON p.author_id = u.id
     WHERE p.slug = ? AND p.status = 'published'
   `).bind(slug).first()
 
-  if (!product) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
+  if (!product) {
+    const history = await c.env.DB.prepare(
+      "SELECT reference_id FROM slug_history WHERE old_slug = ? AND type = 'product'"
+    ).bind(slug).first()
+
+    if (history && history.reference_id) {
+      const realProduct = await c.env.DB.prepare("SELECT slug FROM products WHERE id = ? AND status = 'published'").bind(history.reference_id).first()
+      if (realProduct) {
+         return c.json({ is_redirect: true, new_slug: realProduct.slug }, 200)
+      }
+    }
+    throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
+  }
 
   // NO CACHE: Hub requires real-time price
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
@@ -100,7 +135,9 @@ products.get('/public/:slug', rateLimit(500, 60, 'public_products_detail'), asyn
     cover_image_url: product.cover_image_key ? `${origin}/api/media/${product.cover_image_key}` : null,
     detail_image_1_url: product.detail_image_1_key ? `${origin}/api/media/${product.detail_image_1_key}` : null,
     detail_image_2_url: product.detail_image_2_key ? `${origin}/api/media/${product.detail_image_2_key}` : null,
-    detail_image_3_url: product.detail_image_3_key ? `${origin}/api/media/${product.detail_image_3_key}` : null
+    detail_image_3_url: product.detail_image_3_key ? `${origin}/api/media/${product.detail_image_3_key}` : null,
+    seller_avatar_url: toAbsoluteMediaUrl(origin, product.seller_avatar_url),
+    seller_cover_url: toAbsoluteMediaUrl(origin, product.seller_cover_url)
   }
 
   return c.json(mappedProduct)
@@ -128,9 +165,13 @@ products.post('/internal/:id/download', rateLimit(5000, 60, 'internal_download')
 
   try {
     // Verifikasi JWT dari Hub menggunakan algoritma asimetris RS256
-    const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as { product_id?: string }
+    const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as { product_id?: string; type?: string }
     
-    // MENCEGAH BYPASS (Bug #1)
+    // Pastikan token ini memang untuk tujuan download (bukan sale_trigger atau price_check)
+    if (payload.type !== 'download_request') {
+      throw new HTTPException(403, { message: 'Akses ditolak. Token tidak sesuai untuk operasi ini.' })
+    }
+    // MENCEGAH BYPASS (Bug #1): product_id di JWT harus cocok dengan URL
     if (payload.product_id !== targetId) {
       throw new HTTPException(403, { message: 'Token valid tapi TIDAK untuk produk ini.' })
     }
@@ -173,16 +214,22 @@ products.get('/internal/:id/price', rateLimit(500, 60, 'internal_price'), async 
   }
 
   try {
-    const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as { type?: string }
+    const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as { type?: string; product_id?: string }
     if (payload.type !== 'price_check') {
       throw new HTTPException(403, { message: 'Token valid tapi BUKAN untuk pengecekan harga.' })
+    }
+    if (payload.product_id !== targetId) {
+      throw new HTTPException(403, { message: 'Token pengecekan harga tidak sesuai dengan produk ini.' })
     }
   } catch (e: any) {
     if (e instanceof HTTPException) throw e
     throw new HTTPException(401, { message: 'Akses ditolak. Token tidak valid.' })
   }
 
-  const product = await c.env.DB.prepare('SELECT id, price, status, title FROM products WHERE id = ?').bind(targetId).first()
+  const product = await c.env.DB.prepare(
+    'SELECT id, price, status, title FROM products WHERE id = ?'
+  ).bind(targetId).first<{ id: string; price: number; status: string; title: string }>()
+
   if (!product) {
     throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
   }
@@ -190,7 +237,34 @@ products.get('/internal/:id/price', rateLimit(500, 60, 'internal_price'), async 
     throw new HTTPException(400, { message: 'Produk belum di-publish.' })
   }
 
-  return c.json({ success: true, price: product.price, title: product.title })
+  // ─── PRICE LOCK TOKEN ────────────────────────────────────────────
+  // Terbitkan token pendek yang mengunci harga ini.
+  // Hub WAJIB menyertakan token ini di JWT sale_trigger.
+  // Ini mencegah race condition: jika harga berubah setelah price_check,
+  // CMS akan menolak sale karena token tidak cocok dengan harga baru.
+  //
+  // TTL HARUS ≥ Midtrans payment expiry (60 menit) + buffer retry (30 menit)
+  // Jika TTL lebih pendek dari payment expiry, user yang bayar setelah token expired
+  // akan kehilangan earning seller (uang masuk tapi CMS tolak sale trigger).
+  const PRICE_LOCK_TTL_SECONDS = 5400 // 90 menit
+  const priceLockId = crypto.randomUUID()
+  const priceLockKey = `price_lock:${priceLockId}`
+  const priceLockPayload = JSON.stringify({
+    product_id: targetId,
+    price: product.price,
+    locked_at: new Date().toISOString()
+  })
+  await c.env.KV.put(priceLockKey, priceLockPayload, { expirationTtl: PRICE_LOCK_TTL_SECONDS })
+  // ─────────────────────────────────────────────────────────────────
+
+  return c.json({
+    success: true,
+    price: product.price,
+    title: product.title,
+    price_lock_token: priceLockId,
+    price_lock_expires_in_seconds: PRICE_LOCK_TTL_SECONDS
+  })
+
 })
 
 products.post('/internal/:id/sale', rateLimit(500, 60, 'internal_sale'), async (c) => {
@@ -203,38 +277,273 @@ products.post('/internal/:id/sale', rateLimit(500, 60, 'internal_sale'), async (
     throw new HTTPException(401, { message: 'Akses ditolak. Token tidak ditemukan atau kunci publik tidak dikonfigurasi.' })
   }
 
+  let salePayload: {
+    product_id?: string
+    type?: string
+    jti?: string
+    hub_transaction_id?: string
+    buyer_hub_id?: string
+    gross_amount?: number
+    paid_at?: string
+    price_lock_token?: string  // WAJIB: token dari /internal/:id/price
+  }
+
   try {
-    const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as { product_id?: string, type?: string, jti?: string }
-    if (payload.product_id !== targetId || payload.type !== 'sale_trigger') {
-      throw new HTTPException(403, { message: 'Token valid tapi BUKAN untuk trigering sale produk ini.' })
+    salePayload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as typeof salePayload
+    if (salePayload.type !== 'sale_trigger') {
+      throw new HTTPException(403, { message: 'Token valid tapi tidak dapat digunakan untuk operasi ini.' })
     }
-
-    // MENCEGAH REPLAY ATTACK
-    // Gunakan 'jti' (JWT ID) jika ada, atau gunakan bagian signature dari token sebagai fallback unik
-    const uniqueTokenId = payload.jti || token.split('.')[2]
-    const kvKey = `used_sale_token:${uniqueTokenId}`
-    
-    const isUsed = await c.env.KV.get(kvKey)
-    if (isUsed) {
-      // Bersifat idempotent: kembalikan 200 OK agar Hub menganggap sukses dan tidak melakukan retry
-      return c.json({ message: 'Sale already counted (Replay detected)' })
+    // product_id di JWT harus ada dan harus sesuai dengan :id di URL
+    // Ini mencegah satu token digunakan untuk trigger sale produk yang berbeda
+    if (!salePayload.product_id || salePayload.product_id !== targetId) {
+      throw new HTTPException(403, { message: 'Token tidak sesuai dengan produk yang dimaksud.' })
     }
-
-    // Tandai token sebagai telah digunakan (disimpan di KV selama 24 jam)
-    await c.env.KV.put(kvKey, '1', { expirationTtl: 86400 })
-
   } catch (e: any) {
     if (e instanceof HTTPException) throw e
     throw new HTTPException(401, { message: 'Akses ditolak. Token tidak valid.' })
   }
 
-  await c.env.DB.prepare(`
-    UPDATE products SET sales_count = COALESCE(sales_count, 0) + 1 
-    WHERE id = ?
-  `).bind(targetId).run()
+  // ─── VALIDASI FIELD WAJIB ─────────────────────────────────────────
+  if (!salePayload.hub_transaction_id) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak lengkap: ID transaksi wajib disertakan.' })
+  }
+  if (typeof salePayload.gross_amount !== 'number' || salePayload.gross_amount <= 0) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak lengkap: Nominal pembayaran tidak valid.' })
+  }
+  if (!salePayload.price_lock_token) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak lengkap: Token konfirmasi harga wajib disertakan.' })
+  }
+  if (!salePayload.paid_at) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak lengkap: Waktu pembayaran wajib disertakan.' })
+  }
+  // Validasi timestamp paid_at: tidak boleh di masa depan dan tidak boleh terlalu lama.
+  // Window diperlebar ke 7 hari (bukan 24 jam) karena:
+  // - Retry queue (s2s_sync_queue) bisa mencoba ulang berhari-hari jika CMS sempat down.
+  // - Garis pertahanan utama terhadap waktu yang sudah lewat adalah price_lock_token (TTL 90 menit),
+  //   BUKAN window paid_at ini. paid_at hanya sebagai sanity check pada timestamp yang ganjil.
+  const paidAtMs = new Date(salePayload.paid_at).getTime()
+  if (isNaN(paidAtMs)) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak valid: Format waktu pembayaran tidak dikenali.' })
+  }
+  const nowMs = Date.now()
+  const maxFutureMs = nowMs + 5 * 60 * 1000           // toleransi 5 menit ke depan (clock skew)
+  const maxPastMs   = nowMs - 7 * 24 * 60 * 60 * 1000 // 7 hari ke belakang (cukup untuk retry queue)
+  if (paidAtMs > maxFutureMs) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak valid: Waktu pembayaran tidak boleh di masa depan.' })
+  }
+  if (paidAtMs < maxPastMs) {
+    throw new HTTPException(400, { message: 'Data transaksi tidak dapat diproses: Waktu pembayaran sudah terlalu lama. Hubungi administrator.' })
+  }
+  // ─────────────────────────────────────────────────────────────────
+
+  // ─── IDEMPOTENCY CHECK ───────────────────────────────────────────
+  const idempotencyKey = `used_sale_token:${salePayload.hub_transaction_id}`
+  const isUsed = await c.env.KV.get(idempotencyKey)
+  if (isUsed) {
+    // Bersifat idempotent: kembalikan 200 OK agar Hub tidak melakukan retry
+    return c.json({ message: 'Transaksi sudah diproses sebelumnya.' })
+  }
+  // ─────────────────────────────────────────────────────────────────
+
+  // ─── VALIDASI PRICE LOCK TOKEN ───────────────────────────────────
+  // Ini adalah garis pertahanan utama terhadap race condition harga.
+  // Harga yang valid adalah harga yang dikunci saat Hub memanggil /internal/:id/price,
+  // BUKAN harga produk saat ini di DB (yang bisa sudah berubah).
+  const priceLockKey = `price_lock:${salePayload.price_lock_token}`
+  const priceLockRaw = await c.env.KV.get(priceLockKey)
+
+  if (!priceLockRaw) {
+    // Token tidak ditemukan: sudah expired (>10 menit) atau tidak pernah dibuat
+    throw new HTTPException(410, { message: 'Sesi checkout telah kedaluwarsa. Silakan mulai proses pembelian kembali.' })
+  }
+
+  let priceLock: { product_id: string; price: number; locked_at: string }
+  try {
+    priceLock = JSON.parse(priceLockRaw)
+  } catch {
+    throw new HTTPException(500, { message: 'Terjadi kesalahan saat memproses transaksi.' })
+  }
+
+  // Pastikan price lock token ini memang untuk produk yang dimaksud
+  if (priceLock.product_id !== targetId) {
+    throw new HTTPException(403, { message: 'Token konfirmasi harga tidak sesuai dengan produk ini.' })
+  }
+
+  // Validasi gross_amount dari Hub HARUS PERSIS sama dengan harga yang dikunci
+  // Toleransi 0: tidak ada diskon tambahan, tidak ada markup, tidak ada kesalahan nominal.
+  if (salePayload.gross_amount !== priceLock.price) {
+    throw new HTTPException(409, {
+      message: `Nominal pembayaran tidak sesuai dengan harga yang berlaku. Transaksi dibatalkan untuk keamanan.`
+    })
+  }
+
+  // Hapus price lock token setelah divalidasi (one-time use)
+  await c.env.KV.delete(priceLockKey)
+  // ─────────────────────────────────────────────────────────────────
+
+  // ─── TANDAI IDEMPOTENCY (setelah validasi berhasil) ───────────────
+  // TTL 72 jam — cukup untuk mendeteksi retry dari Hub dalam window yang wajar
+  await c.env.KV.put(idempotencyKey, '1', { expirationTtl: 259200 })
+  // ─────────────────────────────────────────────────────────────────
+
+  // Ambil data produk termasuk pemilik (seller)
+  const product = await c.env.DB.prepare(
+    'SELECT id, author_id, price FROM products WHERE id = ?'
+  ).bind(targetId).first<{ id: string; author_id: string; price: number }>()
+
+  if (!product || !product.author_id) {
+    throw new HTTPException(404, { message: 'Produk tidak ditemukan atau tidak memiliki penjual.' })
+  }
+
+  // gross_amount sudah tervalidasi oleh price lock: ini adalah harga yang benar-benar dibayar
+  const grossAmount = salePayload.gross_amount
+
+  // Cari snapshot riwayat harga yang berlaku saat price_lock dibuat
+  // Ini menjamin audit trail: transaksi ini mengacu ke harga BERAPA yang berlaku
+  const priceLockLockedAt = priceLock.locked_at
+  const priceHistory = await c.env.DB.prepare(`
+    SELECT id FROM product_price_history
+    WHERE product_id = ? AND price = ? AND effective_at <= ?
+    ORDER BY effective_at DESC LIMIT 1
+  `).bind(targetId, grossAmount, priceLockLockedAt).first<{ id: string }>()
+
+  // Ambil konfigurasi fee yang berlaku saat transaksi terjadi (paid_at, bukan sekarang)
+  const feeConfig = await c.env.DB.prepare(`
+    SELECT id, fee_bps, min_fee, max_fee FROM admin_fee_config
+    WHERE effective_from <= ?
+    ORDER BY effective_from DESC LIMIT 1
+  `).bind(salePayload.paid_at).first<{ id: string; fee_bps: number; min_fee: number | null; max_fee: number | null }>()
+
+  // Kalkulasi potongan admin
+  const feeBps = feeConfig?.fee_bps ?? 0
+  let adminFee = Math.floor((grossAmount * feeBps) / 10000)
+
+  if (feeConfig?.min_fee != null && adminFee < feeConfig.min_fee) {
+    adminFee = feeConfig.min_fee
+  }
+  if (feeConfig?.max_fee != null && adminFee > feeConfig.max_fee) {
+    adminFee = feeConfig.max_fee
+  }
+  // Fee tidak pernah boleh melebihi gross
+  adminFee = Math.min(adminFee, grossAmount)
+
+  const sellerNetAmount = grossAmount - adminFee
+  const transactionId = crypto.randomUUID()
+
+  // Simpan record transaksi ke ledger & update sales_count secara atomik
+  await c.env.DB.batch([
+    c.env.DB.prepare(`
+      INSERT INTO sale_transactions (
+        id, product_id, seller_id,
+        price_history_id, gross_amount,
+        fee_config_id, applied_fee_bps, admin_fee_amount, seller_net_amount,
+        hub_transaction_id, buyer_hub_id, status, paid_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'settled', ?)
+    `).bind(
+      transactionId, targetId, product.author_id,
+      priceHistory?.id ?? null, grossAmount,
+      feeConfig?.id ?? null, feeBps, adminFee, sellerNetAmount,
+      salePayload.hub_transaction_id, salePayload.buyer_hub_id ?? null, salePayload.paid_at
+    ),
+    c.env.DB.prepare(
+      'UPDATE products SET sales_count = COALESCE(sales_count, 0) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(targetId)
+  ])
   
-  return c.json({ message: 'Sale counted' })
+  return c.json({ message: 'Transaksi berhasil diproses.' })
 })
+
+// --- REVIEWS ROUTES ---
+products.get('/public/:slug/reviews', async (c) => {
+  const slug = c.req.param('slug');
+  
+  // Get productId
+  const product = await c.env.DB.prepare('SELECT id FROM products WHERE slug = ?').bind(slug).first();
+  if (!product) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' });
+
+  // Get reviews (Dibatasi 50 terbaru untuk mencegah memory crash)
+  const reviews = await c.env.DB.prepare(`
+    SELECT r.id, r.rating, r.comment, r.created_at, r.user_id 
+    FROM product_reviews r
+    WHERE r.product_id = ?
+    ORDER BY r.created_at DESC
+    LIMIT 50
+  `).bind(product.id).all();
+
+  // We only have user_id (which is Hub account_id). We don't have their names in CMS DB since they are Hub users.
+  // Wait, in Hub they have names! Hub will fetch the names or Hub will send them?
+  // Let's just return the user_id, and the frontend will fetch names or Hub API will enrich them.
+  // Actually, better: Hub frontend queries Hub API which queries CMS3 and enriches it.
+  // For now, let's just return what we have.
+  
+  return c.json({ success: true, reviews: reviews.results });
+});
+
+products.post('/internal-reviews', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || authHeader !== `Bearer ${c.env.HUB_PUBLIC_KEY}`) {
+    throw new HTTPException(401, { message: 'Unauthorized S2S Call' });
+  }
+
+  const { productId, accountId, rating, comment } = await c.req.json();
+  if (!productId || !accountId || typeof rating !== 'number' || rating < 1 || rating > 5) {
+    throw new HTTPException(400, { message: 'Data tidak valid.' });
+  }
+
+  // Defense-in-depth: batasi panjang komentar di sisi server juga
+  if (comment && typeof comment === 'string' && comment.length > 500) {
+    throw new HTTPException(400, { message: 'Ulasan terlalu panjang.' });
+  }
+
+  // Verifikasi pembelian sudah dilakukan di layer Hub API sebelum S2S call ini
+
+  const reviewId = crypto.randomUUID();
+  try {
+    // Gunakan batch agar Insert/Update dan Update Aggregate bersifat Atomik
+    await c.env.DB.batch([
+      c.env.DB.prepare(`
+        INSERT INTO product_reviews (id, product_id, user_id, rating, comment)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(product_id, user_id) DO UPDATE SET 
+          rating = excluded.rating,
+          comment = excluded.comment,
+          created_at = CURRENT_TIMESTAMP
+      `).bind(reviewId, productId, accountId, rating, comment),
+      c.env.DB.prepare(`
+        UPDATE products 
+        SET total_reviews = (SELECT COUNT(*) FROM product_reviews WHERE product_id = ?),
+            average_rating = (SELECT AVG(rating) FROM product_reviews WHERE product_id = ?)
+        WHERE id = ?
+      `).bind(productId, productId, productId)
+    ]);
+    
+    return c.json({ success: true, id: reviewId });
+  } catch (err: any) {
+    throw err;
+  }
+});
+
+products.get('/internal-reviews/my', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || authHeader !== `Bearer ${c.env.HUB_PUBLIC_KEY}`) {
+    throw new HTTPException(401, { message: 'Unauthorized S2S Call' });
+  }
+
+  const productId = c.req.query('productId');
+  const accountId = c.req.query('accountId');
+
+  if (!productId || !accountId) {
+    throw new HTTPException(400, { message: 'Missing parameters' });
+  }
+
+  const review = await c.env.DB.prepare(`
+    SELECT id, rating, comment, created_at 
+    FROM product_reviews 
+    WHERE product_id = ? AND user_id = ?
+  `).bind(productId, accountId).first();
+
+  return c.json({ success: true, review: review || null });
+});
 
 // --- PROTECTED ROUTES (CMS ADMIN) ---
 
@@ -297,18 +606,17 @@ const productSchema = z.object({
   category_id: z.string().optional().nullable(),
   meta_title: z.string().optional().nullable(),
   meta_description: z.string().optional().nullable(),
-  status: z.enum(['draft', 'published', 'archived']).default('draft'),
+  status: z.enum(['draft', 'published']).default('draft'),
 })
 
 products.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   const user = c.get('user')
   const { limit, offset } = getPagination(c, 50, 100)
 
-  let query = "SELECT id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, created_at, category_id, meta_title, meta_description, view_count, sales_count FROM products"
+  let query = "SELECT id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, created_at, category_id, meta_title, meta_description, view_count, sales_count, average_rating, total_reviews FROM products"
   const params: any[] = []
   
-  const canSeeAll = ['super_admin', 'Admin', 'Editor']
-  if (!canSeeAll.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
     query += " WHERE author_id = ?"
     params.push(user.id)
   }
@@ -320,15 +628,14 @@ products.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   return c.json({ data: results.results, limit, offset })
 })
 
-products.get('/admin/:id', requirePermission('edit_post'), async (c) => {
+products.get('/admin/:id', requirePermission('edit_product'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
   let query = "SELECT * FROM products WHERE id = ?"
   const params: any[] = [targetId]
 
-  const allowedToViewAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToViewAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
     query += " AND author_id = ?"
     params.push(user.id)
   }
@@ -339,7 +646,7 @@ products.get('/admin/:id', requirePermission('edit_post'), async (c) => {
   return c.json({ data: product })
 })
 
-products.post('/', requirePermission('create_post'), rateLimit(30, 60, 'product_write'), zValidator('json', productSchema), async (c) => {
+products.post('/', requirePermission('create_product'), rateLimit(30, 60, 'product_write'), zValidator('json', productSchema), async (c) => {
   const user = c.get('user')
   const body = c.req.valid('json')
   
@@ -356,19 +663,30 @@ products.post('/', requirePermission('create_post'), rateLimit(30, 60, 'product_
   }
 
   try {
-    await c.env.DB.prepare(`
-      INSERT INTO products (
-        id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, author_id, category_id, meta_title, meta_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      id, body.slug, body.title, cleanDescription, body.price, body.original_price ?? null, 
-      body.cover_image_key || null, body.cover_image_alt ?? null,
-      body.detail_image_1_key || null, body.detail_image_1_alt ?? null,
-      body.detail_image_2_key || null, body.detail_image_2_alt ?? null,
-      body.detail_image_3_key || null, body.detail_image_3_alt ?? null,
-      body.file_r2_key || null, body.status, authorId,
-      body.category_id || null, body.meta_title || null, body.meta_description || null
-    ).run()
+    // Insert produk + snapshot harga awal secara atomik
+    await c.env.DB.batch([
+      c.env.DB.prepare(`
+        INSERT INTO products (
+          id, slug, title, description, price, original_price, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, file_r2_key, status, author_id, category_id, meta_title, meta_description
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        id, body.slug, body.title, cleanDescription, body.price, body.original_price ?? null, 
+        body.cover_image_key || null, body.cover_image_alt ?? null,
+        body.detail_image_1_key || null, body.detail_image_1_alt ?? null,
+        body.detail_image_2_key || null, body.detail_image_2_alt ?? null,
+        body.detail_image_3_key || null, body.detail_image_3_alt ?? null,
+        body.file_r2_key || null, body.status, authorId,
+        body.category_id || null, body.meta_title || null, body.meta_description || null
+      ),
+      // Snapshot harga awal produk
+      c.env.DB.prepare(`
+        INSERT INTO product_price_history (id, product_id, price, original_price, changed_by, change_reason)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        crypto.randomUUID(), id, body.price, body.original_price ?? null,
+        authorId, 'Harga awal saat produk dibuat'
+      )
+    ])
 
     return c.json({ message: 'Produk berhasil dibuat.', id })
   } catch (error: any) {
@@ -379,7 +697,7 @@ products.post('/', requirePermission('create_post'), rateLimit(30, 60, 'product_
   }
 })
 
-products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_write'), zValidator('json', productSchema), async (c) => {
+products.put('/:id', requirePermission('edit_product'), rateLimit(30, 60, 'product_write'), zValidator('json', productSchema), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
   const body = c.req.valid('json')
@@ -393,7 +711,7 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
     }
   }
 
-  const existing = await c.env.DB.prepare('SELECT author_id, status, file_r2_key, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, slug FROM products WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, status, price, original_price, file_r2_key, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt, slug FROM products WHERE id = ?').bind(targetId).first<{ author_id: string; status: string; price: number; original_price: number | null; file_r2_key: string | null; cover_image_key: string | null; cover_image_alt: string | null; detail_image_1_key: string | null; detail_image_1_alt: string | null; detail_image_2_key: string | null; detail_image_2_alt: string | null; detail_image_3_key: string | null; detail_image_3_alt: string | null; slug: string }>()
   if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
 
   // Blokir edit produk yang sudah diarsipkan (mencegah un-archive bypass & perubahan data)
@@ -401,11 +719,16 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
     throw new HTTPException(403, { message: 'Produk yang sudah diarsipkan tidak dapat diedit. Buat produk baru jika diperlukan.' })
   }
 
-  const allowedToEditAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToEditAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
     if (existing.author_id !== user.id) {
       throw new HTTPException(403, { message: 'Anda tidak berhak mengedit produk ini.' })
     }
+  }
+
+  // LOOPHOLE FIX: Cegah downgrade dari 'published' ke 'draft'
+  // Jika ini dibiarkan, Seller bisa mengubah produk 'published' menjadi 'draft', lalu menembak endpoint Hard Delete!
+  if (existing.status === 'published' && body.status === 'draft') {
+    throw new HTTPException(400, { message: 'Produk yang sudah publik tidak dapat dikembalikan menjadi draf. Gunakan fitur Arsip jika ingin menyembunyikannya dari etalase.' })
   }
 
   const newFileKey = body.file_r2_key !== undefined ? body.file_r2_key : existing.file_r2_key
@@ -421,27 +744,61 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
   // Hapus file R2 lama jika file diganti atau dihapus (null)
   if (existing.file_r2_key && newFileKey !== existing.file_r2_key) {
     await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
+    await c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(existing.file_r2_key).run()
   }
   // Catatan: cover_image_key tidak dihapus dari R2 di sini karena dikelola oleh tabel media (Media Library) dan mungkin digunakan oleh entitas lain.
 
+  // Cek apakah harga berubah untuk membuat snapshot riwayat harga
+  // existing sudah mengandung price dan original_price, tidak perlu query kedua
+  const priceChanged =
+    existing.price !== body.price ||
+    (existing.original_price ?? null) !== (body.original_price ?? null)
+
   try {
-    await c.env.DB.prepare(`
-      UPDATE products SET
-        slug = ?, title = ?, description = ?, price = ?, original_price = ?,
-        cover_image_key = ?, cover_image_alt = ?,
-        detail_image_1_key = ?, detail_image_1_alt = ?,
-        detail_image_2_key = ?, detail_image_2_alt = ?,
-        detail_image_3_key = ?, detail_image_3_alt = ?,
-        file_r2_key = ?, status = ?, category_id = ?, meta_title = ?, meta_description = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).bind(
-      body.slug, body.title, cleanDescription, body.price, body.original_price ?? null,
-      newCoverKey || null, newCoverAlt ?? null,
-      newDetail1Key || null, newDetail1Alt ?? null,
-      newDetail2Key || null, newDetail2Alt ?? null,
-      newDetail3Key || null, newDetail3Alt ?? null,
-      newFileKey || null, body.status, body.category_id || null, body.meta_title || null, body.meta_description || null, targetId
-    ).run()
+    const statements = [
+      c.env.DB.prepare(`
+        UPDATE products SET
+          slug = ?, title = ?, description = ?, price = ?, original_price = ?,
+          cover_image_key = ?, cover_image_alt = ?,
+          detail_image_1_key = ?, detail_image_1_alt = ?,
+          detail_image_2_key = ?, detail_image_2_alt = ?,
+          detail_image_3_key = ?, detail_image_3_alt = ?,
+          file_r2_key = ?, status = ?, category_id = ?, meta_title = ?, meta_description = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(
+        body.slug, body.title, cleanDescription, body.price, body.original_price ?? null,
+        newCoverKey || null, newCoverAlt ?? null,
+        newDetail1Key || null, newDetail1Alt ?? null,
+        newDetail2Key || null, newDetail2Alt ?? null,
+        newDetail3Key || null, newDetail3Alt ?? null,
+        newFileKey || null, body.status, body.category_id || null, body.meta_title || null, body.meta_description || null, targetId
+      )
+    ]
+
+    // Jika harga berubah, simpan snapshot riwayat harga
+    if (priceChanged) {
+      statements.push(
+        c.env.DB.prepare(`
+          INSERT INTO product_price_history (id, product_id, price, original_price, changed_by, change_reason)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(
+          crypto.randomUUID(), targetId, body.price, body.original_price ?? null,
+          user.id, 'Perubahan harga oleh admin CMS'
+        )
+      )
+    }
+
+    // Log history jika slug berubah
+    if (existing && existing.slug && body.slug && body.slug !== existing.slug) {
+      const historyId = crypto.randomUUID()
+      statements.push(c.env.DB.prepare(`
+        INSERT INTO slug_history (id, type, reference_id, old_slug, new_slug)
+        VALUES (?, 'product', ?, ?, ?)
+        ON CONFLICT(old_slug, type) DO UPDATE SET new_slug = excluded.new_slug, reference_id = excluded.reference_id
+      `).bind(historyId, targetId, existing.slug, body.slug))
+    }
+
+    await c.env.DB.batch(statements)
 
     return c.json({ message: 'Produk berhasil diperbarui.' })
   } catch (error: any) {
@@ -452,36 +809,63 @@ products.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_
   }
 })
 
-products.delete('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'product_write'), async (c) => {
+products.put('/:id/archive', requirePermission('edit_product'), rateLimit(30, 60, 'product_write'), async (c) => {
+  const targetId = c.req.param('id')
+  const user = c.get('user')
+
+  const existing = await c.env.DB.prepare('SELECT author_id, status FROM products WHERE id = ?').bind(targetId).first()
+  if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
+
+  // Otorisasi Kepemilikan
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
+    if (existing.author_id !== user.id) {
+      throw new HTTPException(403, { message: 'Anda tidak berhak mengarsipkan produk ini.' })
+    }
+  }
+
+  if (existing.status === 'archived') {
+    return c.json({ message: 'Produk sudah dalam status arsip.' })
+  }
+  if (existing.status === 'draft') {
+    throw new HTTPException(400, { message: 'Produk draft tidak bisa diarsipkan, silakan hapus permanen.' })
+  }
+
+  await c.env.DB.prepare("UPDATE products SET status = 'archived', slug = slug || '-archived-' || strftime('%s', 'now'), updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(targetId).run()
+  
+  return c.json({ message: 'Produk berhasil diarsipkan.' })
+})
+
+products.delete('/:id', requirePermission('delete_product'), rateLimit(30, 60, 'product_write'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
   const existing = await c.env.DB.prepare('SELECT author_id, file_r2_key, status FROM products WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' })
 
-  const allowedToDeleteAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToDeleteAny.includes(user.role)) {
+  const isSuperAdmin = user.role === 'super_admin'
+
+  // Otorisasi Kepemilikan (Memperbolehkan Admin yang punya hak edit_any_product)
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
     if (existing.author_id !== user.id) {
       throw new HTTPException(403, { message: 'Anda tidak berhak menghapus produk ini.' })
     }
   }
-
-  if (existing.status === 'draft') {
-    // Hard delete untuk produk draft (hapus file di R2 dan data fisik)
-    if (existing.file_r2_key) {
-      await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
-    }
-    await c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId).run()
-    return c.json({ message: 'Produk draft berhasil dihapus permanen.' })
-  } else if (existing.status === 'archived') {
-    // Sudah diarsipkan, tidak perlu melakukan apa-apa
-    return c.json({ message: 'Produk sudah dalam status arsip.' })
-  } else {
-    // Soft Delete: ubah slug agar membebaskan judul untuk digunakan kembali
-    // Jangan hapus file di R2 untuk melindungi hak pembeli lama
-    await c.env.DB.prepare("UPDATE products SET status = 'archived', slug = slug || '-archived-' || strftime('%s', 'now'), updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(targetId).run()
-    return c.json({ message: 'Produk berhasil diarsipkan (Soft Delete).' })
+  
+  // Perlindungan Hard Delete: Hanya Super Admin yang boleh menghapus produk selain draf
+  if (user.role !== 'super_admin' && existing.status !== 'draft') {
+    throw new HTTPException(403, { message: 'Anda hanya diizinkan menghapus produk draf. Gunakan fitur Arsip untuk produk publik.' })
   }
+
+  // Eksekusi R2 & D1 Media Cleanup (Hard Delete)
+  if (existing.file_r2_key) {
+    await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
+    await c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(existing.file_r2_key).run()
+  }
+  
+  // Eksekusi Hard Delete D1
+  await c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId).run()
+
+  return c.json({ message: 'Produk dan berkas digital berhasil dimusnahkan permanen.' })
 })
 
 export default products

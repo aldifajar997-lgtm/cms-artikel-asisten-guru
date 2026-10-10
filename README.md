@@ -29,27 +29,36 @@ Asisten Guru CMS mengadopsi pola **Headless CMS**—memisahkan logika pengolahan
 
 ## ✨ Fitur Unggulan
 
-1. **Performa Edge Bertenaga Kilat** ⚡
+1. **Marketplace Produk Digital & Etalase Penjual** 🛍️
+   Mendukung skema e-commerce untuk barang digital lengkap dengan profil/etalase penjual (*cover*, *bio*, media sosial) dan sistem ulasan (*reviews*). Fitur produk mencakup galeri multi-gambar, harga diskon, alur pengarsipan, perlindungan aset via *Cloudflare R2*, serta analitik performa.
+
+2. **Integrasi Ekosistem Aman (S2S dengan Hub)** 🤝
+   CMS berkomunikasi secara aman dengan aplikasi utama (Hub) menggunakan autentikasi *Server-to-Server (S2S)* asimetris (RS256). Mendukung alur transaksi ketat seperti *price lock*, sinkronisasi penjualan, validasi ulasan terverifikasi, dan otorisasi *download*.
+
+3. **Manajemen Penghasilan & RBAC (Role-Based Access Control)** 💰
+   Sistem otorisasi multi-peran dinamis (*Super Admin*, *Author*, dsb). Dilengkapi Dasbor Penulis (dengan fitur saran tren konten/Topik), pencatatan transaksi penjualan (*Earnings*), serta manajemen pengajuan penarikan dana (*Withdrawals*).
+
+4. **Performa Edge Bertenaga Kilat** ⚡
    API dieksekusi di *edge network* (lokasi server terdekat dengan pengguna) sehingga latensi menjadi sangat rendah (rata-rata 30-50ms).
    
-2. **Pencarian Cerdas (Full-Text Search)** 🔍
+5. **Pencarian Cerdas (Full-Text Search)** 🔍
    Menggunakan modul `FTS5` SQLite, pencarian artikel berdasarkan kata kunci berjalan seketika tanpa perlu layanan pihak ketiga seperti Algolia atau ElasticSearch.
    
-3. **Paginasi Berbasis Kursor (*Keyset Pagination*)** ⏭️
-   Menghindari masalah lambatnya *query OFFSET* pada dataset besar. API artikel menggunakan kursor (tanggal publikasi) sehingga performa tetap stabil meski ada ratusan ribu artikel.
+6. **Paginasi Berbasis Kursor (*Keyset Pagination*)** ⏭️
+   Menghindari masalah lambatnya *query OFFSET* pada dataset besar. API menggunakan kursor sehingga performa tetap stabil meski ada ratusan ribu entri.
 
-4. **Keamanan Lapis Baja (Zero-Trust Security)** 🛡️
+7. **Keamanan Lapis Baja (Zero-Trust Security)** 🛡️
    - **No Plaintext Passwords:** Seluruh *password* penulis di-hash secara aman.
    - **Strict JWT Auth:** Token unik yang kedaluwarsa otomatis (bukan token abadi).
-   - **XSS Protection:** Input artikel disanitasi menggunakan `DOMPurify` di Backend, memastikan tidak ada skrip berbahaya, namun tetap menoleransi *embed* YouTube/Twitter secara cerdas.
+   - **XSS Protection:** Input HTML disanitasi menggunakan `DOMPurify` di Backend, memastikan tidak ada skrip berbahaya, namun tetap menoleransi *embed* (YouTube/Twitter) secara cerdas.
    - **Anti-Brute Force:** Endpoint login dan API vital dijaga dengan *Rate Limiting* otomatis.
    - **CORS Terkendali:** Hanya mengizinkan *traffic* dari domain terdaftar.
 
-5. **Manajemen Media Efisien (Client-Side Resizing)** 🖼️
+8. **Manajemen Media Efisien (Client-Side Resizing)** 🖼️
    Backend secara tegas membatasi unggahan file di atas 1MB. Hal ini diakali secara brilian oleh *Frontend* yang otomatis mengecilkan dimensi gambar (*resize via HTML5 Canvas*) dan mengompresinya ke WebP **sebelum** dikirim ke *server*. Menghemat tagihan *bandwidth* 100%!
 
-6. **SEO Terintegrasi (Technical SEO)** 📈
-   Otomatis menghasilkan struktur *Sitemap XML* berskala besar (termasuk paginasi sitemap), lengkap dengan perlindungan konten draf (konten belum *publish* tidak akan pernah terekspos/terhitung).
+9. **SEO Terintegrasi (Technical SEO)** 📈
+   Otomatis menghasilkan struktur *Sitemap XML* berskala besar (termasuk paginasi sitemap untuk artikel dan produk), lengkap dengan perlindungan konten draf (konten belum *publish* tidak akan pernah terekspos/terhitung).
 
 ---
 
@@ -59,7 +68,7 @@ Asisten Guru CMS mengadopsi pola **Headless CMS**—memisahkan logika pengolahan
 ├── schema.sql              # Skema tabel database (D1), Triggers, & Virtual Tables (FTS5)
 ├── src/                    # KODE BACKEND API (Cloudflare Workers)
 │   ├── index.ts            # Entry point API & Konfigurasi CORS
-│   ├── routes/             # Endpoint (posts, users, categories, media, tags, seo)
+│   ├── routes/             # Endpoint (posts, products, users, earnings, categories, media, tags, seo, settings, dashboard)
 │   ├── middlewares/        # Proteksi rute (Auth JWT, Role-Based Access, Rate Limit)
 │   └── utils/              # Fungsi bantu (Hash, Paginasi, Sanitasi)
 ├── UI/                     # KODE FRONTEND ADMIN (React + Vite)

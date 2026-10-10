@@ -7,7 +7,9 @@ import {
   Upload,
   Image as ImageIcon,
   Loader2,
-  FileBox
+  FileBox,
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import SunEditor from 'suneditor-react';
 import 'suneditor/dist/css/suneditor.min.css';
@@ -227,9 +229,28 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       return;
     }
 
-    if (!price || isNaN(Number(price))) {
-      warning('Harga produk tidak valid!');
-      return;
+    if (targetStatus === 'published') {
+      if (!categoryId) {
+        warning('Kategori produk wajib diisi!');
+        return;
+      }
+      if (!price || isNaN(Number(price))) {
+        warning('Harga produk tidak valid!');
+        return;
+      }
+      if (!coverImageKey) {
+        warning('Cover gambar produk wajib diunggah!');
+        return;
+      }
+      const cleanDesc = description.replace(/<[^>]*>?/gm, '').trim();
+      if (!cleanDesc && !description.includes('<img')) {
+        warning('Deskripsi produk wajib diisi!');
+        return;
+      }
+      if (!fileR2Key) {
+        warning('File unduhan digital wajib diunggah!');
+        return;
+      }
     }
 
     let finalSlug = slug.trim() || generateSlug(title);
@@ -344,305 +365,262 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       </header>
 
       {/* Editor Body */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-8">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Main Info (Left) */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Judul Produk</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    if (!product.id || product.id.startsWith('prod-')) handleAutoSlug();
-                  }}
-                  onBlur={handleAutoSlug}
-                  placeholder="Contoh: Modul Belajar Bahasa Inggris..."
-                  disabled={isArchived}
-                  className={`w-full text-sm px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-semibold ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Slug URL (Opsional)</label>
-                <input
-                  type="text"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                  placeholder="modul-belajar-bahasa-inggris"
-                  disabled={isArchived}
-                  className={`w-full text-xs px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-mono text-slate-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Deskripsi Produk</label>
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  {useMemo(() => (
-                    <SunEditor
-                      defaultValue={description}
-                      onChange={setDescription}
-                      setOptions={EDITOR_OPTIONS}
-                    />
-                  ), [])}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Settings & Upload (Right) */}
-          <div className="space-y-6">
+      <div className="flex-1 flex overflow-hidden bg-white">
+        {/* Main Area */}
+        <div className="flex-1 overflow-y-auto px-6 sm:px-10 lg:px-12 py-8 flex flex-col">
+          <div className="w-full mx-auto flex flex-col flex-1 max-w-4xl">
             
-            {/* Category Card */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-slate-800">Kategori</h3>
-              <div>
+            {/* Title & Meta Row */}
+            <div className="mb-8">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  if (!product.id || product.id.startsWith('prod-')) handleAutoSlug();
+                }}
+                onBlur={handleAutoSlug}
+                placeholder="Judul Produk Baru..."
+                disabled={isArchived}
+                className={`w-full text-3xl sm:text-4xl font-extrabold text-slate-900 border-none outline-none placeholder:text-slate-200 bg-transparent focus:ring-0 leading-tight ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
+
+              <div className="flex flex-wrap items-center gap-4 mt-6 border-b border-slate-100 pb-4 text-sm">
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                   disabled={isArchived}
-                  className={`w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 cursor-pointer ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`font-medium text-slate-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer hover:text-teal-600 py-1 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <option value="">Pilih Kategori...</option>
                   {categories.filter(c => c.type === 'product').map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
                   ))}
                 </select>
-              </div>
-            </div>
 
-            {/* SEO Card */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-slate-800">Pengaturan SEO</h3>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Meta Title</label>
-                <input
-                  type="text"
-                  value={metaTitle}
-                  onChange={(e) => setMetaTitle(e.target.value)}
-                  placeholder="Opsional (Default: Judul)"
-                  className="w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500"
-                />
-              </div>
+                <div className="h-4 w-px bg-slate-200" />
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Meta Description</label>
-                <textarea
-                  value={metaDescription}
-                  onChange={(e) => setMetaDescription(e.target.value)}
-                  placeholder="Opsional (Default: Ekstrak deskripsi)"
-                  rows={3}
-                  className="w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 resize-none"
-                />
-              </div>
-            </div>
-
-            {/* Pricing Card */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-slate-800">Harga Produk</h3>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Harga Jual (Rp)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="0"
-                  disabled={isArchived}
-                  className={`w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Harga Coret / Asli (Opsional)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={originalPrice}
-                  onChange={(e) => setOriginalPrice(e.target.value)}
-                  placeholder="Opsional, misal harga sebelum diskon"
-                  disabled={isArchived}
-                  className={`w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 line-through text-slate-400 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
-                />
-              </div>
-            </div>
-
-            {/* Upload Cover */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Cover Gambar</h3>
-                <p className="text-[11px] text-slate-500 mt-0.5 mb-3">Rekomendasi: Resolusi 1200x900px (4:3) atau Persegi, Maksimal 1MB.</p>
-              </div>
-              
-              {!coverImageKey ? (
-                <div
-                  onClick={() => !isUploadingCover && !isArchived && coverInputRef.current?.click()}
-                  className={`w-full h-40 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100'}`}
-                >
-                  {isUploadingCover ? (
-                    <Loader2 className="w-6 h-6 animate-spin text-teal-600 mb-2" />
-                  ) : (
-                    <>
-                      <ImageIcon className="w-8 h-8 text-slate-400 mb-2" />
-                      <p className="text-xs font-bold text-slate-600">{isArchived ? 'Tanpa sampul' : 'Klik untuk unggah cover'}</p>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 group">
-                  <img 
-                    src={`${baseUrl}/media/${coverImageKey}`} 
-                    alt="Cover" 
-                    className="w-full h-full object-cover"
-                  />
+                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
+                  <span>/{slug || 'slug-produk'}</span>
                   {!isArchived && (
-                    <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                      <button
-                        onClick={() => { setCoverImageKey(null); setCoverImageAlt(''); }}
-                        className="px-3 py-1.5 bg-rose-500 text-white text-xs font-bold rounded-lg shadow-sm"
-                      >
-                        Hapus Cover
-                      </button>
-                    </div>
+                    <button onClick={handleAutoSlug} className="p-1 hover:text-teal-600 rounded transition-colors">
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
                   )}
                 </div>
-              )}
-              <input
-                type="file"
-                ref={coverInputRef}
-                onChange={handleCoverUpload}
-                accept="image/*"
-                className="hidden"
-              />
 
-              {coverImageKey && (
-                <div className="mt-4">
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Alt Text (Cover SEO)</label>
+                <div className="h-4 w-px bg-slate-200" />
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">Rp</span>
                   <input
-                    type="text"
-                    value={coverImageAlt}
-                    onChange={(e) => setCoverImageAlt(e.target.value)}
-                    placeholder="Deskripsi gambar untuk SEO..."
+                    type="number"
+                    min="0"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    placeholder="Harga Jual"
                     disabled={isArchived}
-                    className={`w-full text-sm px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    className={`bg-transparent border-none outline-none text-sm text-teal-800 font-bold placeholder:text-slate-300 w-24 focus:ring-0 py-0 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                 </div>
-              )}
+
+                <div className="h-4 w-px bg-slate-200" />
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 line-through">Rp</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={originalPrice}
+                    onChange={(e) => setOriginalPrice(e.target.value)}
+                    placeholder="Harga Coret (Opsional)"
+                    disabled={isArchived}
+                    className={`bg-transparent border-none outline-none text-xs text-slate-400 font-medium placeholder:text-slate-300 w-36 focus:ring-0 py-0 line-through ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  />
+                </div>
+              </div>
             </div>
 
-            {/* Upload Detail Images */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Detail Gambar (Opsional, Maks 3)</h3>
-                <p className="text-[11px] text-slate-500 mt-0.5 mb-3">Rekomendasi: Resolusi Persegi 1080x1080px (1:1) agar seragam, Maksimal 1MB.</p>
-              </div>
-              
-              <div className="space-y-6">
-                {[
-                  { id: 1, key: detailImage1Key, setKey: setDetailImage1Key, alt: detailImage1Alt, setAlt: setDetailImage1Alt },
-                  { id: 2, key: detailImage2Key, setKey: setDetailImage2Key, alt: detailImage2Alt, setAlt: setDetailImage2Alt },
-                  { id: 3, key: detailImage3Key, setKey: setDetailImage3Key, alt: detailImage3Alt, setAlt: setDetailImage3Alt }
-                ].map((item) => (
-                  <div key={item.id} className="pt-4 border-t border-slate-100 first:pt-0 first:border-0">
-                    <p className="text-xs font-bold text-slate-500 mb-2">Detail {item.id}</p>
-                    {!item.key ? (
-                      <div
-                        onClick={() => !isUploadingDetail[item.id] && !isArchived && detailInputRefs[item.id - 1].current?.click()}
-                        className={`w-full h-32 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100'}`}
-                      >
-                        {isUploadingDetail[item.id] ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-teal-600 mb-2" />
-                        ) : (
-                          <>
-                            <ImageIcon className="w-6 h-6 text-slate-400 mb-2" />
-                            <p className="text-xs font-bold text-slate-600">Klik untuk unggah</p>
-                          </>
-                        )}
-                      </div>
+            {/* Images: Cover & Details */}
+            <div className="mb-8 space-y-4">
+              {/* Upload Cover */}
+              <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Cover Gambar <span className="text-rose-500">*</span></h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5 mb-3">Rekomendasi: Resolusi 1200x900px (4:3) atau Persegi, Maksimal 1MB.</p>
+                </div>
+                
+                {!coverImageKey ? (
+                  <div
+                    onClick={() => !isUploadingCover && !isArchived && coverInputRef.current?.click()}
+                    className={`w-full h-48 border-2 border-dashed border-slate-200 rounded-xl bg-white flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
+                  >
+                    {isUploadingCover ? (
+                      <Loader2 className="w-6 h-6 animate-spin text-teal-600 mb-2" />
                     ) : (
-                      <div className="space-y-3">
-                        <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 group">
-                          <img 
-                            src={`${baseUrl}/media/${item.key}`} 
-                            alt={`Detail ${item.id}`} 
-                            className="w-full h-full object-cover"
-                          />
-                          {!isArchived && (
-                            <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                              <button
-                                onClick={() => { item.setKey(null); item.setAlt(''); }}
-                                className="px-3 py-1.5 bg-rose-500 text-white text-xs font-bold rounded-lg shadow-sm"
-                              >
-                                Hapus
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-700 mb-1">Alt Text (SEO)</label>
-                          <input
-                            type="text"
-                            value={item.alt}
-                            onChange={(e) => item.setAlt(e.target.value)}
-                            placeholder="Deskripsi gambar..."
-                            disabled={isArchived}
-                            className={`w-full text-xs px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
-                          />
-                        </div>
+                      <>
+                        <ImageIcon className="w-8 h-8 text-slate-400 mb-2" />
+                        <p className="text-xs font-bold text-slate-600">{isArchived ? 'Tanpa sampul' : 'Klik untuk unggah cover utama'}</p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative w-full aspect-video md:aspect-[21/9] rounded-xl overflow-hidden border border-slate-200 group">
+                    <img 
+                      src={`${baseUrl}/media/${coverImageKey}`} 
+                      alt="Cover" 
+                      className="w-full h-full object-cover"
+                    />
+                    {!isArchived && (
+                      <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                        <button
+                          onClick={() => { setCoverImageKey(null); setCoverImageAlt(''); }}
+                          className="px-4 py-2 bg-rose-500 text-white text-xs font-bold rounded-xl shadow-sm"
+                        >
+                          Hapus Cover
+                        </button>
                       </div>
                     )}
+                  </div>
+                )}
+                <input type="file" ref={coverInputRef} onChange={handleCoverUpload} accept="image/*" className="hidden" />
+
+                {coverImageKey && (
+                  <div className="mt-4">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Alt Text (Cover SEO)</label>
                     <input
-                      type="file"
-                      ref={detailInputRefs[item.id - 1]}
-                      onChange={(e) => handleDetailUpload(e, item.id)}
-                      accept="image/*"
-                      className="hidden"
+                      type="text"
+                      value={coverImageAlt}
+                      onChange={(e) => setCoverImageAlt(e.target.value)}
+                      placeholder="Deskripsi gambar untuk SEO..."
+                      disabled={isArchived}
+                      className={`w-full text-sm px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
                     />
                   </div>
-                ))}
+                )}
+              </div>
+
+              {/* Upload Detail Images */}
+              <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Detail Gambar (Opsional)</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5 mb-3">Rekomendasi: Resolusi Persegi 1080x1080px (1:1), Maksimal 1MB per file.</p>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  {[
+                    { id: 1, key: detailImage1Key, setKey: setDetailImage1Key, alt: detailImage1Alt, setAlt: setDetailImage1Alt },
+                    { id: 2, key: detailImage2Key, setKey: setDetailImage2Key, alt: detailImage2Alt, setAlt: setDetailImage2Alt },
+                    { id: 3, key: detailImage3Key, setKey: setDetailImage3Key, alt: detailImage3Alt, setAlt: setDetailImage3Alt }
+                  ].map((item) => (
+                    <div key={item.id} className="flex flex-col">
+                      <p className="text-[11px] font-bold text-slate-500 mb-2 text-center">Detail {item.id}</p>
+                      {!item.key ? (
+                        <div
+                          onClick={() => !isUploadingDetail[item.id] && !isArchived && detailInputRefs[item.id - 1].current?.click()}
+                          className={`w-full aspect-square border-2 border-dashed border-slate-200 rounded-xl bg-white flex flex-col items-center justify-center p-2 text-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
+                        >
+                          {isUploadingDetail[item.id] ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-teal-600 mb-1" />
+                          ) : (
+                            <>
+                              <ImageIcon className="w-5 h-5 text-slate-400 mb-1" />
+                              <p className="text-[10px] font-bold text-slate-600 leading-tight">Unggah</p>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 flex-1 flex flex-col">
+                          <div className="relative w-full aspect-square rounded-xl overflow-hidden border border-slate-200 group">
+                            <img 
+                              src={`${baseUrl}/media/${item.key}`} 
+                              alt={`Detail ${item.id}`} 
+                              className="w-full h-full object-cover"
+                            />
+                            {!isArchived && (
+                              <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                <button
+                                  onClick={() => { item.setKey(null); item.setAlt(''); }}
+                                  className="px-2 py-1 bg-rose-500 text-white text-[10px] font-bold rounded-lg shadow-sm"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-auto pt-1">
+                            <label className="block text-[9px] font-bold text-slate-700 mb-0.5 truncate">Alt Text (SEO)</label>
+                            <input
+                              type="text"
+                              value={item.alt}
+                              onChange={(e) => item.setAlt(e.target.value)}
+                              placeholder="Deskripsi..."
+                              disabled={isArchived}
+                              className={`w-full text-[10px] px-2 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        ref={detailInputRefs[item.id - 1]}
+                        onChange={(e) => handleDetailUpload(e, item.id)}
+                        accept="image/*"
+                        className="hidden"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="flex-1 flex flex-col min-h-[400px] mb-8">
+              <label className="block text-sm font-bold text-slate-800 mb-2">Deskripsi Produk <span className="text-rose-500">*</span></label>
+              <div className="border border-slate-200 rounded-xl overflow-hidden flex-1 flex flex-col">
+                {useMemo(() => (
+                  <SunEditor
+                    defaultValue={description}
+                    onChange={setDescription}
+                    setOptions={EDITOR_OPTIONS}
+                  />
+                ), [])}
               </div>
             </div>
 
             {/* Upload File Digital */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-slate-800">File Unduhan Digital</h3>
+            <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4 mb-8">
+              <h3 className="text-sm font-bold text-slate-800">File Unduhan Digital <span className="text-rose-500">*</span></h3>
               
               {!fileR2Key ? (
                 <div
                   onClick={() => !isUploadingFile && !isArchived && fileInputRef.current?.click()}
-                  className={`w-full p-6 border-2 border-dashed border-slate-200 rounded-xl bg-blue-50/50 flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-blue-50'}`}
+                  className={`w-full p-8 border-2 border-dashed border-blue-200 rounded-xl bg-white flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-blue-50'}`}
                 >
                   {isUploadingFile ? (
-                    <Loader2 className="w-6 h-6 animate-spin text-blue-600 mb-2" />
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-3" />
                   ) : (
                     <>
-                      <FileBox className="w-8 h-8 text-blue-400 mb-2" />
-                      <p className="text-xs font-bold text-slate-600 text-center">{isArchived ? 'Tidak ada file' : 'Pilih file produk digital (.zip, .pdf)'}</p>
-                      {!isArchived && <p className="text-[10px] text-slate-400 mt-1">Maks. 50MB</p>}
+                      <FileBox className="w-10 h-10 text-blue-400 mb-3" />
+                      <p className="text-sm font-bold text-slate-700 text-center">{isArchived ? 'Tidak ada file' : 'Pilih file produk digital (.zip, .pdf)'}</p>
+                      {!isArchived && <p className="text-xs text-slate-500 mt-1.5">Maks. 50MB. File ini akan diberikan ke pembeli setelah pembayaran.</p>}
                     </>
                   )}
                 </div>
               ) : (
                 <div className="p-4 bg-teal-50 border border-teal-100 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CheckCircle2 className="w-5 h-5 text-teal-600 shrink-0" />
-                    <span className="text-xs font-bold text-teal-800 truncate" title={fileR2Key}>
-                      {isArchived ? 'File terlindungi (read-only)' : `File Siap! (${fileR2Key.substring(0, 15)}...)`}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <CheckCircle2 className="w-6 h-6 text-teal-600 shrink-0" />
+                    <span className="text-sm font-bold text-teal-800 truncate" title={fileR2Key}>
+                      {isArchived ? 'File terlindungi (read-only)' : `File Siap! (${fileR2Key})`}
                     </span>
                   </div>
                   {!isArchived && (
                     <button
                       onClick={() => setFileR2Key(null)}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700 shrink-0"
+                      className="text-xs font-bold text-rose-600 hover:text-rose-700 shrink-0 px-3 py-1.5 bg-rose-50 rounded-lg"
                     >
-                      Hapus
+                      Hapus File
                     </button>
                   )}
                 </div>
@@ -658,6 +636,97 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
           </div>
         </div>
+
+        {/* Right Sidebar: Analysis Panel for Product */}
+        <aside className="w-80 lg:w-88 border-l border-slate-100 bg-slate-50/50 p-6 flex flex-col gap-6 overflow-y-auto shrink-0">
+          <div>
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-teal-500" />
+              Kelengkapan Produk
+            </h3>
+            
+            <div className="space-y-2.5">
+              <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs flex items-start gap-2.5">
+                {title.trim().length >= 10 ? <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-800 leading-tight">Judul Produk</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {title.trim().length >= 10 ? 'Judul sudah cukup panjang.' : 'Judul minimal 10 karakter.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs flex items-start gap-2.5">
+                {coverImageKey ? <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-800 leading-tight">Cover Gambar</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {coverImageKey ? 'Cover telah diunggah.' : 'Wajib mengunggah cover produk.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs flex items-start gap-2.5">
+                {price && Number(price) > 0 ? <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-800 leading-tight">Harga Jual</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {price && Number(price) > 0 ? 'Harga jual valid.' : 'Harga jual harus lebih dari 0.'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs flex items-start gap-2.5">
+                {fileR2Key ? <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-800 leading-tight">File Digital</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {fileR2Key ? 'File siap dijual.' : 'Wajib mengunggah file .zip/.pdf.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
+              SEO Meta Data
+            </h3>
+            <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Meta Title</label>
+                  <span className={`text-[10px] font-bold ${metaTitle.length > 60 ? 'text-rose-500' : metaTitle.length > 40 ? 'text-teal-600' : 'text-slate-400'}`}>
+                    {metaTitle.length}/60
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={metaTitle}
+                  onChange={(e) => setMetaTitle(e.target.value)}
+                  placeholder="Judul untuk Google..."
+                  className={`w-full text-xs px-3 py-2 bg-slate-50 border ${metaTitle.length > 60 ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-teal-500'} rounded-xl focus:ring-1 outline-none`}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Meta Description</label>
+                  <span className={`text-[10px] font-bold ${metaDescription.length > 160 ? 'text-rose-500' : metaDescription.length >= 120 ? 'text-teal-600' : 'text-slate-400'}`}>
+                    {metaDescription.length}/160
+                  </span>
+                </div>
+                <textarea
+                  value={metaDescription}
+                  onChange={(e) => setMetaDescription(e.target.value)}
+                  placeholder="Deskripsi untuk Google..."
+                  rows={4}
+                  className={`w-full text-xs px-3 py-2 bg-slate-50 border ${metaDescription.length > 160 ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-teal-500'} rounded-xl focus:ring-1 outline-none resize-none`}
+                />
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );

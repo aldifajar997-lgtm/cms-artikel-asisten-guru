@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, Context } from 'hono'
 import { z } from 'zod'
 import { sign, verify } from 'hono/jwt'
 import { zValidator } from '@hono/zod-validator'
@@ -135,7 +135,19 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
     "SELECT p.id, p.slug, p.title, p.excerpt, p.content, p.featured_image, p.featured_image_alt, p.featured_image_caption, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.status, p.published_at, p.created_at, p.updated_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = ? AND p.status = 'published'"
   ).bind(slug).first()
 
-  if (!post) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
+  if (!post) {
+    const history = await c.env.DB.prepare(
+      "SELECT reference_id FROM slug_history WHERE old_slug = ? AND type = 'post'"
+    ).bind(slug).first()
+
+    if (history && history.reference_id) {
+      const realPost = await c.env.DB.prepare("SELECT slug FROM posts WHERE id = ? AND status = 'published'").bind(history.reference_id).first()
+      if (realPost) {
+         return c.json({ is_redirect: true, new_slug: realPost.slug }, 200)
+      }
+    }
+    throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
+  }
 
   const formatted = {
     ...post,
@@ -174,7 +186,7 @@ posts.get('/preview/:identifier', rateLimit(100, 60, 'preview_posts'), async (c)
 
   // Ambil post tanpa memperhatikan status (draft/published)
   const post = await c.env.DB.prepare(
-    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, word_count, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE id = ? OR slug = ?"
+    "SELECT id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption, meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, geo_score, geo_original_angle, geo_comprehensive, word_count, reading_time_minutes, view_count, author_id, category_id, status, published_at, created_at, updated_at FROM posts WHERE id = ? OR slug = ?"
   ).bind(identifier, identifier).first()
 
   if (!post) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
@@ -222,13 +234,47 @@ posts.post('/:slug/view', rateLimit(1, 60, (c) => `post_view_${c.req.param('slug
 
 posts.use('*', authMiddleware)
 
+function extractMediaKeys(content: string | null, featuredImage: string | null): string[] {
+  const keys: string[] = []
+  if (featuredImage) {
+    const match = featuredImage.match(/\/api\/media\/([^\/"']+)/)
+    if (match) keys.push(match[1])
+  }
+  if (content) {
+    const regex = /\/api\/media\/([^\/"']+)/g
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      keys.push(match[1])
+    }
+  }
+  return [...new Set(keys)]
+}
+
+async function cleanupOrphanedMedia(c: any, keys: string[]) {
+  if (!keys || keys.length === 0) return;
+  try {
+    const batchStmts = [];
+    for (const key of keys) {
+      await c.env.R2.delete(key);
+      batchStmts.push(c.env.DB.prepare(`DELETE FROM media WHERE r2_key = ?`).bind(key));
+    }
+    if (batchStmts.length > 0) {
+      await c.env.DB.batch(batchStmts);
+    }
+  } catch (err) {
+    console.error('Failed to cleanup media:', err);
+  }
+}
+
 const stripHtml = (val: string) => val ? val.replace(/<[^>]*>?/gm, '').trim() : val;
 
 const postSchema = z.object({
   title: z.string().trim().min(1).max(255).transform(stripHtml),
   slug: z.string().trim().min(1).max(255).regex(slugRegex, 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung').transform(stripHtml),
   excerpt: z.string().max(500).optional().transform(v => v ? stripHtml(v) : v),
-  content: z.string().optional(),
+  content: z.string().optional().refine((val) => !val || !val.includes('data:image/'), {
+    message: "Artikel mengandung gambar copy-paste (Base64). Harap hapus gambar tersebut dan gunakan fitur 'Insert Image' di editor untuk mengunggahnya."
+  }),
   featured_image: z.string().optional(),
   featured_image_alt: z.string().optional().transform(v => v ? stripHtml(v) : v),
   featured_image_caption: z.string().optional().transform(v => v ? stripHtml(v) : v),
@@ -237,11 +283,15 @@ const postSchema = z.object({
   focus_keyword: z.string().optional().transform(v => v ? stripHtml(v) : v),
   secondary_keywords: z.array(z.string().transform(stripHtml)).optional(),
   seo_score: z.number().min(0).max(100).optional(),
+  geo_score: z.number().min(0).max(100).optional(),
+  geo_original_angle: z.number().min(0).max(1).optional(),
+  geo_comprehensive: z.number().min(0).max(1).optional(),
   word_count: z.number().min(0).max(100000).optional(),
   reading_time_minutes: z.number().min(0).max(1000).optional(),
   category_id: z.string().optional(),
   status: z.enum(['draft', 'published']).default('draft'),
-  tag_ids: z.array(z.string()).max(50, 'Maksimal 50 tag per artikel.').optional()
+  tag_ids: z.array(z.string()).max(50, 'Maksimal 50 tag per artikel.').optional(),
+  session_media_keys: z.array(z.string()).optional()
 }).superRefine((data, ctx) => {
   if (data.status === 'published') {
     const rawContentLength = data.content ? stripHtml(data.content).length : 0;
@@ -258,6 +308,7 @@ posts.get('/admin/stats', requirePermission('view_dashboard'), async (c) => {
       COUNT(*) as total_articles,
       SUM(word_count) as total_words,
       AVG(seo_score) as avg_score,
+      AVG(geo_score) as avg_geo_score,
       SUM(view_count) as total_views,
       SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published_count,
       SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count
@@ -265,9 +316,7 @@ posts.get('/admin/stats', requirePermission('view_dashboard'), async (c) => {
   `
   const params: any[] = []
 
-  // Writer hanya lihat artikelnya sendiri; Super Admin, Admin, Editor lihat semua
-  const canSeeAll = ['super_admin', 'Admin', 'Editor']
-  if (!canSeeAll.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     query += ' WHERE author_id = ?'
     params.push(user.id)
   }
@@ -280,8 +329,7 @@ posts.get('/admin/preview-token/:id', requirePermission('edit_post'), async (c) 
   const targetId = c.req.param('id')
   const user = c.get('user')
 
-  const allowedToPreviewAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToPreviewAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     const existing = await c.env.DB.prepare('SELECT author_id FROM posts WHERE id = ?').bind(targetId).first()
     if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
     if (existing.author_id !== user.id) throw new HTTPException(403, { message: 'Anda tidak berhak melihat preview artikel ini.' })
@@ -306,13 +354,11 @@ posts.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   const status = c.req.query('status')
   const sort = c.req.query('sort')
 
-  let query = "SELECT posts.id, posts.slug, posts.title, posts.excerpt, posts.content, posts.featured_image, posts.featured_image_alt, posts.featured_image_caption, posts.meta_title, posts.meta_description, posts.focus_keyword, posts.secondary_keywords, posts.seo_score, posts.word_count, posts.reading_time_minutes, posts.view_count, posts.author_id, posts.category_id, posts.status, posts.published_at, posts.created_at, posts.updated_at, users.name as author_name, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts LEFT JOIN users ON posts.author_id = users.id"
+  let query = "SELECT posts.id, posts.slug, posts.title, posts.excerpt, posts.content, posts.featured_image, posts.featured_image_alt, posts.featured_image_caption, posts.meta_title, posts.meta_description, posts.focus_keyword, posts.secondary_keywords, posts.seo_score, posts.geo_score, posts.geo_original_angle, posts.geo_comprehensive, posts.word_count, posts.reading_time_minutes, posts.view_count, posts.author_id, posts.category_id, posts.status, posts.published_at, posts.created_at, posts.updated_at, users.name as author_name, (SELECT json_group_array(tag_id) FROM post_tags WHERE post_id = posts.id) as tag_ids FROM posts LEFT JOIN users ON posts.author_id = users.id"
   const params: any[] = []
   const conditions: string[] = []
 
-  // Writer hanya lihat artikelnya sendiri; Super Admin, Admin, Editor lihat semua
-  const canSeeAll = ['super_admin', 'Admin', 'Editor']
-  if (!canSeeAll.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     conditions.push('posts.author_id = ?')
     params.push(user.id)
   }
@@ -364,8 +410,7 @@ posts.get('/admin/:id', requirePermission('edit_post'), async (c) => {
   let query = "SELECT posts.*, (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'slug', t.slug)) FROM post_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.post_id = posts.id) as tags_json FROM posts WHERE id = ?"
   const params: any[] = [targetId]
 
-  const allowedToViewAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToViewAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     query += ' AND author_id = ?'
     params.push(user.id)
   }
@@ -403,16 +448,16 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
       c.env.DB.prepare(`
         INSERT INTO posts (
           id, slug, title, excerpt, content, featured_image, featured_image_alt, featured_image_caption,
-          meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, word_count, reading_time_minutes,
+          meta_title, meta_description, focus_keyword, secondary_keywords, seo_score, geo_score, geo_original_angle, geo_comprehensive, word_count, reading_time_minutes,
           author_id, category_id, status, published_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         id, body.slug, body.title, body.excerpt || null, cleanContent,
         body.featured_image || null, body.featured_image_alt || null, body.featured_image_caption || null,
         body.meta_title || null, body.meta_description || null,
         body.focus_keyword || null, body.secondary_keywords ? JSON.stringify(body.secondary_keywords) : null,
-        body.seo_score || null, body.word_count || null, body.reading_time_minutes || null,
+        body.seo_score || null, body.geo_score || null, body.geo_original_angle || 0, body.geo_comprehensive || 0, body.word_count || null, body.reading_time_minutes || null,
         authorId, body.category_id || null, body.status, publishedAt
       )
     )
@@ -423,6 +468,12 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
     }
 
     await c.env.DB.batch(stmts)
+
+    // Garbage Collection (On-Save)
+    const usedKeys = extractMediaKeys(cleanContent, body.featured_image || null);
+    const sessionKeys = body.session_media_keys || [];
+    const orphanedKeys = sessionKeys.filter((k: string) => !usedKeys.includes(k));
+    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, orphanedKeys));
 
     return c.json({ message: 'Artikel berhasil dibuat.', id })
   } catch (error: any) {
@@ -439,11 +490,10 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   const body = c.req.valid('json')
 
   // Verifikasi Ownership
-  const existing = await c.env.DB.prepare('SELECT author_id, slug, status FROM posts WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, slug, status, content, featured_image FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
 
-  const allowedToEditAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToEditAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     if (existing.author_id !== user.id) {
       throw new HTTPException(403, { message: 'Anda tidak berhak mengedit artikel milik orang lain.' })
     }
@@ -468,7 +518,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
           slug = ?, title = ?, excerpt = ?, content = ?, featured_image = ?,
           featured_image_alt = ?, featured_image_caption = ?,
           meta_title = ?, meta_description = ?, focus_keyword = ?, secondary_keywords = ?,
-          seo_score = ?, word_count = ?, reading_time_minutes = ?,
+          seo_score = ?, geo_score = ?, geo_original_angle = ?, geo_comprehensive = ?, word_count = ?, reading_time_minutes = ?,
           category_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP,
           published_at = COALESCE(published_at, ?)
         WHERE id = ?
@@ -477,7 +527,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
         body.featured_image_alt || null, body.featured_image_caption || null,
         body.meta_title || null, body.meta_description || null,
         body.focus_keyword || null, body.secondary_keywords ? JSON.stringify(body.secondary_keywords) : null,
-        body.seo_score || null, body.word_count || null, body.reading_time_minutes || null,
+        body.seo_score || null, body.geo_score || null, body.geo_original_angle || 0, body.geo_comprehensive || 0, body.word_count || null, body.reading_time_minutes || null,
         body.category_id || null, body.status, publishedAt, targetId
       )
     )
@@ -489,8 +539,29 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
         body.tag_ids.forEach(tagId => stmts.push(tagStmt.bind(targetId, tagId)))
       }
     }
+    
+    // Log history jika slug berubah
+    if (existing && existing.slug && body.slug && body.slug !== existing.slug) {
+      const historyId = crypto.randomUUID()
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO slug_history (id, type, reference_id, old_slug, new_slug)
+        VALUES (?, 'post', ?, ?, ?)
+        ON CONFLICT(old_slug, type) DO UPDATE SET new_slug = excluded.new_slug, reference_id = excluded.reference_id
+      `).bind(historyId, targetId, existing.slug, body.slug))
+    }
 
     await c.env.DB.batch(stmts)
+
+    // Garbage Collection (On-Save)
+    const oldKeys = extractMediaKeys(existing.content as string, existing.featured_image as string);
+    const newKeys = extractMediaKeys(cleanContent, body.featured_image || null);
+    const sessionKeys = body.session_media_keys || [];
+    
+    const sessionOrphaned = sessionKeys.filter((k: string) => !newKeys.includes(k));
+    const removedOldKeys = oldKeys.filter((k: string) => !newKeys.includes(k));
+    
+    const totalOrphanedKeys = [...new Set([...sessionOrphaned, ...removedOldKeys])];
+    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, totalOrphanedKeys));
 
     // Invalidasi cache KV
     if (existing && existing.slug) {
@@ -509,24 +580,27 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
   }
 })
 
-posts.delete('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'), async (c) => {
+posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_write'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
 
   // Selalu cek keberadaan resource terlebih dahulu
-  const existing = await c.env.DB.prepare('SELECT author_id, slug, status FROM posts WHERE id = ?').bind(targetId).first()
+  const existing = await c.env.DB.prepare('SELECT author_id, slug, status, content, featured_image FROM posts WHERE id = ?').bind(targetId).first()
   if (!existing) {
     throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
   }
 
-  const allowedToDeleteAny = ['super_admin', 'Admin', 'Editor']
-  if (!allowedToDeleteAny.includes(user.role)) {
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_post')) {
     if (existing.author_id !== user.id) {
       throw new HTTPException(403, { message: 'Anda tidak berhak menghapus artikel ini.' })
     }
   }
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(targetId).run()
+
+  // Garbage Collection saat artikel dihapus permanen
+  const oldKeys = extractMediaKeys(existing.content as string, existing.featured_image as string);
+  c.executionCtx.waitUntil(cleanupOrphanedMedia(c, oldKeys));
 
   if (existing.slug) {
     c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))

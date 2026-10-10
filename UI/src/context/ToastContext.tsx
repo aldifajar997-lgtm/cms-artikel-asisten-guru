@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
 import { ToastContainer } from '../components/ui/Toast';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -37,12 +37,12 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const toast = {
+  const toast = useMemo(() => ({
     success: (message: string) => addToast(message, 'success'),
     error: (message: string) => addToast(message, 'error'),
     warning: (message: string) => addToast(message, 'warning'),
     info: (message: string) => addToast(message, 'info'),
-  };
+  }), [addToast]);
 
   return (
     <ToastContext.Provider value={{ toast }}>

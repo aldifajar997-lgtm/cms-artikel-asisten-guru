@@ -127,7 +127,9 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
   `).bind(user.id).all()
 
   const permissions = roleQuery.results.map(r => r.permission_name).filter(Boolean) as string[]
-  const role = user.id === 'super_admin' ? 'super_admin' : ((roleQuery.results[0]?.role_name as string) || 'user')
+  const roles = [...new Set(roleQuery.results.map(r => r.role_name).filter(Boolean) as string[])]
+  let assignedRole = roles.includes('Admin') ? 'Admin' : (roles.includes('Editor') ? 'Editor' : (roles[0] || 'user'))
+  const role = user.id === 'super_admin' ? 'super_admin' : assignedRole
 
   const payload = {
     id: user.id as string,
@@ -253,7 +255,8 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
     `).bind(tokenRecord.user_id).all()
 
     currentPermissions = roleQuery.results.map(r => r.permission_name).filter(Boolean) as string[]
-    currentRole = (roleQuery.results[0]?.role_name as string) || 'user'
+    const roles = [...new Set(roleQuery.results.map(r => r.role_name).filter(Boolean) as string[])]
+    currentRole = roles.includes('Admin') ? 'Admin' : (roles.includes('Editor') ? 'Editor' : (roles[0] || 'user'))
   } else {
     currentRole = 'super_admin'
   }

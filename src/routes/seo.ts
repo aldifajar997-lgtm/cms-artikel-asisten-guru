@@ -14,14 +14,18 @@ const escapeXml = (str: string) =>
 
 
 /**
- * Format tanggal dari database ke YYYY-MM-DD.
+ * Format tanggal dari database ke ISO-8601 komplit.
  * Return null jika input null atau format tidak valid (fix M7: jangan fake date).
  */
 const formatDate = (dateStr: string | null): string | null => {
   if (!dateStr) return null
-  const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0]
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null
-  return datePart
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return null
+    return d.toISOString().split('.')[0] + '+00:00'
+  } catch (e) {
+    return null
+  }
 }
 
 const SITEMAP_PAGE_SIZE = 1000
@@ -103,15 +107,7 @@ seo.get('/sitemap-posts-*', rateLimit(20, 60, 'sitemap'), async (c) => {
 
     let postUrls = ''
 
-    // Halaman utama hanya di page 1
-    if (page === 1) {
-      postUrls += `
-  <url>
-    <loc>${frontendUrl}/</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>`
-    }
+    // Halaman utama sudah dihandle oleh sitemap-hub.xml di frontend
 
     postUrls += posts.results.map(post => {
       const lastmod = formatDate(post.updated_at as string)
@@ -159,14 +155,7 @@ seo.get('/sitemap-products-*', rateLimit(20, 60, 'sitemap'), async (c) => {
 
     let productUrls = ''
 
-    if (page === 1) {
-      productUrls += `
-  <url>
-    <loc>${frontendUrl}/toko</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>`
-    }
+    // Halaman root /toko sudah dihandle oleh sitemap-hub.xml di frontend
 
     productUrls += products.results.map(product => {
       const lastmod = formatDate(product.updated_at as string)
@@ -224,6 +213,10 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
       "SELECT slug FROM tags LIMIT 5000"
     ).all()
 
+    const authors = await c.env.DB.prepare(
+      "SELECT DISTINCT u.id FROM users u JOIN posts p ON p.author_id = u.id WHERE p.status = 'published' LIMIT 5000"
+    ).all()
+
     const categoryUrls = categories.results.map(category => {
       if (category.type === 'product') {
         return `
@@ -248,8 +241,15 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
     <priority>0.5</priority>
   </url>`).join('')
 
+    const authorUrls = authors.results.map(author => `
+  <url>
+    <loc>${frontendUrl}/blog/penulis/${author.id}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>`).join('')
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${categoryUrls}${tagUrls}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${categoryUrls}${tagUrls}${authorUrls}
 </urlset>`
 
     return c.text(xml, 200, {

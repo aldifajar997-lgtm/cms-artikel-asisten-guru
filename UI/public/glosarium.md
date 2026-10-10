@@ -145,3 +145,45 @@ Perintah teknis yang otomatis mengalihkan pengguna dan mesin pencari dari satu U
 Kata-kata atau frasa yang memiliki hubungan makna (semantik) secara erat dengan kata kunci utama (Focus Keyword). 
 * **Contoh:** Jika kata kunci utama adalah "Mobil", kata kunci LSI-nya mungkin "mesin, ban, setir, bensin". Menggunakan LSI keyword membuat artikel terlihat lebih natural bagi Google.
 
+## Terminologi GEO (Generative Engine Optimization)
+
+### 32. GEO (Generative Engine Optimization)
+Proses mengoptimalkan konten situs web agar lebih mudah dipahami, relevan, dan layak untuk dikutip (dijadikan referensi) oleh mesin pencari berbasis Kecerdasan Buatan (AI) seperti Google AI Overviews, ChatGPT Search, Claude, Perplexity, dan Copilot.
+
+### 33. AI Overviews
+Ringkasan informasi yang dihasilkan oleh AI generatif (seperti milik Google) di bagian atas halaman pencarian. AI merangkum jawaban dari berbagai sumber artikel di internet yang dianggap orisinal, otoritatif, dan relevan.
+
+### 34. Sudut Pandang Orisinal (Original Angle)
+Menyajikan konten dengan perspektif baru, pengalaman langsung (*first-hand experience*), wawancara, atau analisis opini asli. Konten orisinal lebih diprioritaskan oleh AI untuk dikutip dibandingkan artikel yang hanya merangkum/menyalin konten yang sudah ada di platform lain.
+
+### 35. Pembahasan Tuntas (Comprehensive Coverage)
+Menjawab maksud utama pembaca (*user intent*) secara utuh dan mendalam dalam satu artikel tunggal, tanpa memecah-mecah satu topik ke dalam banyak artikel tipis (*thin content*) yang tidak memberikan nilai tambah signifikan. Hal ini membangun otoritas topikal (*topical authority*) di mata AI.
+
+### 36. Statistik Berkonteks
+Penggunaan angka, persentase, atau statistik riil (seperti "30% peningkatan") yang ditempatkan secara terstruktur dalam teks.
+* **Fungsi:** AI generatif (seperti AI Overviews) sangat menyukai data numerik yang faktual dan spesifik untuk mendukung argumen. 
+* **Cara Memperbaiki:** Jika kurang optimal, tambahkan referensi data, hasil riset penelitian, metrik, atau angka faktual pendukung pada argumen artikel Anda.
+
+### 37. Sumber Eksternal Dikutip
+Menyertakan tautan (link) ke website eksternal/pihak ketiga yang kredibel (seperti situs berita, jurnal ilmiah, lembaga resmi, atau laporan industri).
+* **Fungsi:** Mesin pencari AI membutuhkan validasi bahwa klaim dalam artikel Anda merujuk pada sumber yang valid.
+* **Cara Memperbaiki:** Tambahkan tautan (Hyperlink) ke situs referensi saat menyebutkan fakta, klaim spesifik, atau data.
+
+### 38. Kutipan Langsung (Blockquote)
+Mengutip ucapan atau teks dari pakar, narasumber, studi, atau buku (di editor dapat digunakan fitur "Quote" atau "Blockquote").
+* **Fungsi:** Meningkatkan kredibilitas artikel (E-E-A-T). Model AI sering kali menarik opini atau kutipan ahli untuk merangkum jawaban.
+* **Cara Memperbaiki:** Masukkan pernyataan asli, *statement* narasumber, atau potongan kalimat penting dari pakar terkait.
+
+### 39. Validitas Tanggal
+Memiliki jejak waktu (kapan diterbitkan/diperbarui). Di CMS Asisten Guru, metrik ini dinilai otomatis, karena sistem akan secara otomatis melampirkan tanggal `publishedAt` di *schema markup* artikel.
+* **Fungsi:** AI memprioritaskan konten terbaru (*freshness*) agar ringkasan pencarian relevan dan tidak basi.
+
+### 40. Struktur Heading
+Penggunaan sub-judul (Heading 2, Heading 3, dst.) yang hierarkis, runtut, dan logis.
+* **Fungsi:** AI mem- *parsing* (memecah) teks berdasarkan *heading* untuk memahami topik-topik pendukung. Tanpa *heading* yang baik, AI akan kesulitan mengekstraksi inti paragraf.
+* **Cara Memperbaiki:** Pecah teks blok panjang dengan menyisipkan sub-topik (Heading 2 / Heading 3) yang deskriptif.
+
+### 41. Bagian Ringkas (Distribusi Paragraf)
+Membatasi panjang karakter tiap paragraf agar terdistribusi dengan baik (tidak ada satu paragraf yang super tebal, sementara yang lain tipis).
+* **Fungsi:** AI mengekstrak jawaban berdasarkan kesatuan paragraf. Paragraf yang terlalu panjang/bertele-tele (lebih dari 4-5 kalimat) akan diabaikan oleh AI karena terlalu rumit untuk diringkas.
+* **Cara Memperbaiki:** Pecah paragraf yang terlalu panjang menjadi beberapa paragraf pendek (2-3 kalimat). Gunakan *bullet points* (*List*) untuk menyebutkan sejumlah item agar lebih mudah di- *scan* oleh mata dan AI.

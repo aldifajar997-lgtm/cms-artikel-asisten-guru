@@ -1,170 +1,196 @@
 # Dokumentasi Endpoint API Backend (CMS)
 
-Berikut adalah rangkuman dari seluruh *endpoint* yang telah dikonstruksi untuk sistem CMS ini. Dokumentasi ini akan mempermudah *review* arsitektur dan kontrol akses sebelum di-*deploy* ke *production*.
+> **Sumber kebenaran:** dokumen ini disinkronkan langsung dari kode `src/routes/*.ts` dan `src/index.ts` (terakhir: 2026-10-03).
+> Salinan identik disimpan di `CMS3/endpointdoc.md`, `CMS3/docs/endpointdoc.md`, dan `asisten-guru hub/doc/endpointdoc.md`. Jika mengubah endpoint, perbarui ketiganya.
 
-## 🔑 Modul Autentikasi (`/api/auth`)
-Modul ini bertugas menangani sesi pengguna, pengamanan menggunakan *JWT*, dan *HTTP-only cookies*.
+**Legenda Proteksi**
+| Ikon | Arti |
+| :--- | :--- |
+| 🟢 **Publik** | Tanpa login. |
+| 🔴 **Butuh Login** | Wajib `Authorization: Bearer <access_token>` CMS. |
+| 🛡️ **Izin Khusus** | Login + permission tertentu (disebutkan di kolom keterangan). |
+| 👑 **Super Admin** | Login + peran Super Admin. |
+| 🔐 **S2S (Hub)** | Server-to-server dari Hub, JWT RS256 yang ditandatangani kunci privat Hub. |
 
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
-| :--- | :---: | :--- | :--- |
-| `/login` | `POST` | 🟢 **Publik** | Menerima email dan password, mengembalikan `access_token` dan mengatur `refresh_token` di *cookie*. Memiliki proteksi *Rate Limiting* dan *Timing Attack*. |
-| `/refresh` | `POST` | 🟢 **Publik** | Menggunakan *cookie* `refresh_token` untuk mengeluarkan `access_token` baru tanpa perlu *login* ulang. (Mendukung *token rotation* demi keamanan). |
-| `/logout` | `POST` | 🔴 **Butuh Login** | Menghapus token dari database dan membersihkan *cookie* sesi dari *browser*. |
-| `/forgot-password` | `POST` | 🟢 **Publik** | Mengirimkan *email reset password* melalui layanan email. (Dilengkapi *Rate Limiting*). |
-| `/reset-password` | `POST` | 🟢 **Publik** | Mengubah *password* setelah memverifikasi token reset yang valid. |
-
----
-
-## 👤 Modul Profil & Manajemen SEO (`/api/users`)
-Modul ini bertugas mengelola identitas penulis, preferensi SEO, target penulisan, serta operasi administratif untuk Super Admin.
-
-### Endpoint Publik (Untuk Pembaca)
-Endpoint ini diletakkan khusus *sebelum* `authMiddleware`, agar para pembaca blog bisa melihat profil penulis artikel tanpa login. Namun, data yang disajikan sangat dibatasi demi keamanan.
-
-*   `q` (opsional): Keyword pencarian.
-*   `category_id` (opsional): Filter berdasarkan kategori.
-*   `author_id` (opsional): Filter berdasarkan pembuat artikel.
-*   `sort` (opsional): Urutan artikel (`newest`, `oldest`, `popular`). Default: `newest` (berdasarkan `published_at`).
-*   `cursor` (opsional): Keyset cursor (nilai `published_at` atau `view_count` terakhir).
-*   `limit` (opsional): Maksimal item yang dikembalikan (default 10, maks 50).
-*   `offset` (opsional): Offset paginasi tradisional (default 0). *Disarankan menggunakan cursor*.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
-| :--- | :---: | :--- | :--- |
-| `/author/:id` | `GET` | 🟢 **Publik** | Menarik data publik milik penulis (Nama, Avatar, Bio, Portfolio, Role, Niche). *Endpoint* ini **memblokir** pengungkapan data sensitif seperti Email, Target Kata, dan Target Artikel. |
-
-### Endpoint Profil Sendiri (Personal)
-Hanya bisa diakses dan mengubah data milik pengguna yang *login* itu sendiri (*Anti-IDOR*).
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
-| :--- | :---: | :--- | :--- |
-| `/me` | `GET` | 🔴 **Butuh Login** | Menarik data profil (termasuk *bio*, metrik *SEO*, target kata bulanan, dan *niche* utama). |
-| `/me` | `PUT` | 🔴 **Butuh Login** | Memperbarui teks profil dan target *SEO* bulanan. Terdapat proteksi *Mass Assignment* (hanya memproses atribut yang diizinkan). |
-| `/me/password` | `PUT` | 🔴 **Butuh Login** | Mengganti *password* lama ke *password* baru. Otomatis memutuskan/mengakhiri sesi *login* pada perangkat (*device*) lain. |
-| `/me/avatar` | `POST` | 🔴 **Butuh Login** | Mengunggah foto profil (*avatar*) ke penyimpanan objek. Dibatasi maksimal 2MB dengan validasi *Magic Bytes* gambar. Otomatis menghapus sisa _file_ foto lama dari penyimpanan. |
-
-### Endpoint Administratif (Super Admin)
-Endpoint khusus ini secara berlapis dicegat (*intercepted*) oleh *middleware*, dan hanya meloloskan pengguna dengan peran *Super Admin*.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
-| :--- | :---: | :--- | :--- |
-| `/` | `GET` | 🛡️ **Super Admin** | Melihat senarai (daftar) seluruh penulis yang terdaftar di dalam sistem beserta *role* mereka (mendukung *Pagination*). |
-| `/` | `POST` | 🛡️ **Super Admin** | Mendaftarkan pengguna baru (mengundang anggota tim). Otomatis mengirimkan *email* undangan lewat layanan email. |
-| `/:id/status` | `PUT` | 🛡️ **Super Admin** | Mengaktifkan atau menonaktifkan pengguna. Jika dinonaktifkan, seluruh token miliknya dibakar secara instan (langsung ter-*logout* dari sistem). |
-| `/:id/role` | `PUT` | 🛡️ **Super Admin** | Menugaskan *role* baru (misal mengubah *Writer* menjadi *Editor*). |
-| `/:id/reset-password`| `PUT` | 🛡️ **Super Admin** | Penyetelan ulang (*force reset*) *password* anggota jika mereka tidak dapat mengakses tautan dari *email*. |
-| `/roles/list` | `GET` | 🛡️ **Super Admin** | Mendapatkan daftar opsi _Role_ yang tersedia di _database_ untuk keperluan _dropdown_. |
-| `/:id` | `DELETE` | 🛡️ **Super Admin** | Menghapus pengguna secara permanen dari sistem, beserta token dan *file avatar*-nya. |
+Semua pesan error ke klien menggunakan bahasa yang ramah pengguna; detail teknis tidak pernah dikirim ke frontend.
 
 ---
 
-## 📝 Modul Artikel & Postingan (`/api/posts`)
-Modul ini bertugas menangani pembuatan, pengeditan, dan pengelolaan artikel beserta fitur-fitur pendukung SEO-nya.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+## 🩺 Health Check
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/` | `GET` | 🟢 **Publik** | Mendapatkan daftar artikel publik yang statusnya `published` (Mendukung *Pagination*). |
-| `/:slug` | `GET` | 🟢 **Publik** | Membaca satu artikel publik secara spesifik berdasarkan *slug*. |
-| `/:slug/view` | `POST` | 🟢 **Publik** | Menambahkan jumlah tayangan (View Count) pada suatu artikel. Dilindungi *Rate Limit* ketat berbasis IP untuk mencegah *spam* atau klik ganda bot. |
-| `/preview/:identifier` | `GET` | 🟢 **Publik** | Menampilkan *preview* artikel (termasuk *draft*). Wajib menyertakan parameter `?token=` valid hasil generate JWT preview. |
-| `/admin/stats` | `GET` | 🔴 **Butuh Login** | Mendapatkan ringkasan statistik (jumlah artikel *published/draft*, total views, *word count*, dll) untuk _dashboard_ pengguna saat ini. |
-| `/admin/preview-token/:id` | `GET` | 🔴 **Butuh Login** | Menghasilkan token JWT sementara (berlaku 15 menit) untuk pratinjau (*preview*) artikel *draft*. (Membutuhkan izin `edit_post`). |
-| `/admin/all` | `GET` | 🔴 **Butuh Login** | Mendapatkan daftar lengkap seluruh artikel untuk manajemen di dalam CMS. *Super Admin* bisa melihat semua artikel, sedangkan pengguna biasa hanya melihat artikel miliknya. |
-| `/admin/:id` | `GET` | 🔴 **Butuh Login** | Mengambil detail spesifik satu artikel beserta *tags* untuk dimuat ke dalam form Editor. (Membutuhkan izin `edit_post`). |
-| `/` | `POST` | 🔴 **Butuh Login** | Membuat artikel baru (tersimpan ke `draft` atau `published`). Mengeksekusi proteksi anti-XSS melalui DOMPurify pada konten HTML. (Membutuhkan izin `create_post`). |
-| `/:id` | `PUT` | 🔴 **Butuh Login** | Mengedit artikel yang sudah ada. Menjamin kontrol akses sehingga pengguna hanya bisa mengedit artikelnya sendiri, kecuali ia adalah *Super Admin*. (Membutuhkan izin `edit_post`). |
-| `/:id` | `DELETE` | 🔴 **Butuh Login** | Menghapus artikel dari _database_. (Membutuhkan izin `delete_post`). |
+| `/api/health` | `GET` | 🟢 Publik | Cek kesehatan layanan & database. `200 {status:"ok"}` atau `503 {status:"degraded"}`. |
 
 ---
 
-## 📂 Modul Taksonomi & Kategori (`/api/categories` & `/api/tags`)
-Menangani pembuatan taksonomi untuk pengelompokan artikel.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+## 🔑 Autentikasi (`/api/auth`)
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/api/categories` | `GET` | 🟢 **Publik** | Mendapatkan daftar seluruh kategori beserta metrik penggunaan (`article_count` & `product_count`). Mendukung filter `?type=article` atau `?type=product`. |
-| `/api/categories` | `POST` | 🛡️ **Izin Khusus** | Membuat kategori baru (Bisa bertipe `article` dengan hierarki induk-anak, atau `product` secara datar). Membutuhkan izin `manage_taxonomy`. |
-| `/api/categories/:id` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui detail kategori. Memiliki proteksi ketat: **Tipe kategori (article/product) tidak dapat diubah** jika kategori tersebut sudah terpakai oleh konten. |
-| `/api/categories/:id` | `DELETE` | 🛡️ **Izin Khusus** | Menghapus kategori. Secara otomatis memutus relasi ID di tabel `posts` dan `products` menjadi `NULL` (mencegah *Orphan ID*), serta melepaskan sub-kategorinya. |
-| `/api/tags` | `GET` | 🟢 **Publik** | Mendapatkan daftar seluruh *tags* (label) artikel yang ada. |
-| `/api/tags` | `POST` | 🛡️ **Izin Khusus** | Membuat _tag_ baru (Membutuhkan izin `manage_taxonomy`). |
-| `/api/tags/:id` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui nama/slug _tag_ (Membutuhkan izin `manage_taxonomy`). |
-| `/api/tags/:id` | `DELETE` | 🛡️ **Izin Khusus** | Menghapus _tag_ (Membutuhkan izin `manage_taxonomy`). |
+| `/login` | `POST` | 🟢 Publik | Email + password → `access_token`, `refresh_token` di cookie HTTP-only. Rate limit 5/menit, proteksi *timing attack*. |
+| `/refresh` | `POST` | 🟢 Publik | Tukar cookie `refresh_token` → `access_token` baru (*token rotation*). Rate limit 5/menit. |
+| `/logout` | `POST` | 🔴 Login | Mencabut access token aktif & menghapus refresh token + cookie. |
+| `/forgot-password` | `POST` | 🟢 Publik | Kirim email reset password. Rate limit 3/jam. |
+| `/reset-password` | `POST` | 🟢 Publik | Set password baru dengan token reset (berlaku terbatas). Rate limit 5/jam. |
 
 ---
 
-## 🛍️ Modul Produk Digital & Integrasi Hub (`/api/products`)
-Modul ini menangani manajemen produk digital untuk diperjualbelikan (E-commerce) serta menyediakan *endpoint internal* yang hanya bisa diakses oleh **Marketplace Hub** menggunakan kunci kriptografi Asimetris (RS256 JWT).
+## 👤 Profil & Pengguna (`/api/users`)
 
-### Endpoint Publik (Katalog)
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+### Publik
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/public` | `GET` | 🟢 **Publik** | Mendapatkan daftar produk yang statusnya `published`. Mendukung pencarian (`?search`), filter kategori ID (`?category_id`), dan filter slug kategori (`?category_slug`). |
-| `/public/:slug` | `GET` | 🟢 **Publik** | Menampilkan detail spesifik satu produk. Merespons dengan *header Cache-Control* khusus untuk memastikan Hub selalu mendapat harga _real-time_. |
-| `/public/:slug/view` | `POST` | 🟢 **Publik** | Menambahkan metrik jumlah tayang produk. (Memiliki Rate Limiting khusus per-slug). |
+| `/author/:id` | `GET` | 🟢 Publik | Profil publik penulis/seller aktif: `id, name, avatar_url, cover_url, bio, portfolio_url, primary_niche, social_*`. Email & target pribadi **tidak** diekspos. Rate limit 500/menit. |
 
-### Endpoint Internal (Khusus Ekosistem Hub)
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+### Profil Sendiri (Anti-IDOR — selalu memakai `user.id` dari token)
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/internal/:id/download` | `POST` | 🔐 **JWT (Hub)** | Mengunduh _file_ produk digital yang terenkripsi di *Object Storage* (R2). Memvalidasi token dari Hub, mengecek `product_id`, dan merespons langsung dengan _stream file_. |
-| `/internal/:id/price` | `GET` | 🔐 **JWT (Hub)** | Mengecek harga *real-time* suatu produk sesaat sebelum proses *checkout* di Hub untuk menghindari kecurangan perubahan harga. |
-| `/internal/:id/sale` | `POST` | 🔐 **JWT (Hub)** | Memicu perhitungan jumlah penjualan (`sales_count`). Dilengkapi mekanisme proteksi *Replay Attack* dan *Idempotensi* menggunakan `jti` yang di-cache di Cloudflare KV selama 24 jam. |
+| `/me` | `GET` | 🔴 Login | Data profil lengkap termasuk `cover_url`, target SEO, dan sosial media. |
+| `/me` | `PUT` | 🔴 Login | Update profil (whitelist field). `avatar_url`/`cover_url`: **tidak dikirim = dipertahankan**, `""`/`null` = dihapus (file lama ikut dibersihkan). URL absolut otomatis dinormalisasi ke relatif. Rate limit 10/menit. |
+| `/me/password` | `PUT` | 🔴 Login | Ganti password (wajib password lama). Mengakhiri sesi di perangkat lain. Tidak berlaku untuk Super Admin. Rate limit 5/jam. |
+| `/me/avatar` | `POST` | 🔴 Login | Upload avatar (`multipart`, field `avatar`). Maks 2MB, JPG/PNG/WEBP (validasi *magic bytes*). Response: `{ avatar_url }`. Rate limit 5/menit. |
+| `/me/cover` | `POST` | 🔴 Login | **Baru.** Upload foto sampul etalase seller (`multipart`, field `cover`). Maks 3MB, JPG/PNG/WEBP. File lama otomatis dihapus. Response: `{ cover_url }` (relatif, `/api/media/covers/...`). Rate limit 5/menit. |
 
-### Endpoint Administratif (CMS)
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+### Administratif
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/upload-file` | `POST` | 🔴 **Butuh Login** | Mengunggah _file_ produk digital mentah (.zip, .rar, .pdf) ke R2 Storage dengan verifikasi ketat _Magic Bytes_ (Maks 50MB). |
-| `/admin/all` | `GET` | 🔴 **Butuh Login** | Menampilkan seluruh produk (CMS Dashboard). Super Admin melihat semua, penulis biasa melihat miliknya sendiri. |
-| `/admin/:id` | `GET` | 🔴 **Butuh Login** | Menarik data spesifik satu produk untuk diedit. |
-| `/` | `POST` | 🔴 **Butuh Login** | Membuat entri produk baru. Memvalidasi bahwa `category_id` yang dipilih harus memiliki `type === 'product'`. |
-| `/:id` | `PUT` | 🔴 **Butuh Login** | Memperbarui entri produk. Secara otomatis membersihkan _file_ sampah lama di R2 jika _file_ produk diubah. |
-| `/:id` | `DELETE` | 🔴 **Butuh Login** | Menghapus produk. Jika status masih `draft`, _file_ fisik dan *record* akan dihapus total (*Hard Delete*). Jika `published`, status diubah jadi `archived` dengan merombak nilai `slug` (*Soft Delete*) demi melindungi hak akses bagi pembeli lama. |
+| `/` | `GET` | 👑 Super Admin | Daftar pengguna + role (paginasi `limit`/`offset`, maks 100). |
+| `/` | `POST` | 👑 Super Admin | Undang pengguna baru / kirim ulang undangan (email berisi link setup password 24 jam). Rate limit 10/menit. |
+| `/:id/status` | `PUT` | 👑 Super Admin | Aktif/nonaktifkan user. Nonaktif → semua sesi dicabut. |
+| `/:id/role` | `PUT` | 👑 Super Admin | Set satu/banyak role (`role_id` atau `role_ids`). Role Super Admin tidak bisa di-assign. |
+| `/:id/reset-password` | `PUT` | 👑 Super Admin | Force reset password user (bukan Super Admin sistem). Semua sesi user dicabut. |
+| `/roles/list` | `GET` | 👑 Super Admin | Daftar role untuk dropdown. |
+| `/:id` | `DELETE` | 👑 Super Admin | Hapus user permanen beserta file avatar **dan foto sampul**. |
 
 ---
 
-## 🖼️ Modul Media & Upload (`/api/media`)
-Menangani pengunggahan dan pemanggilan aset *file* statis melalui penyimpanan objek.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+## 📝 Artikel (`/api/posts`)
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/:r2_key` | `GET` | 🟢 **Publik** | Mengakses dan merender gambar _inline_ untuk artikel yang tersimpan di penyimpanan objek. |
-| `/avatars/:r2_key` | `GET` | 🟢 **Publik** | Mengakses gambar khusus _avatar_ pengguna. |
-| `/` | `POST` | 🔴 **Butuh Login** | Mengunggah aset media (gambar) dari editor teks. Melakukan validasi *Magic Bytes*, membatasi ukuran (max 2MB), menghasilkan kunci unik, dan menyimpannya ke penyimpanan objek (Membutuhkan izin `upload_media`). |
-| `/:id` | `DELETE` | 🔴 **Butuh Login** | Menghapus aset media dari penyimpanan objek dan rekamannya dari database (Membutuhkan izin `delete_media`). |
+| `/` | `GET` | 🟢 Publik | Daftar artikel `published`. Query: `q`, `category_id`, `author_id`, `sort` (`newest`/`oldest`/`popular`), `cursor`, `limit` (≤50), `offset`. |
+| `/:slug` | `GET` | 🟢 Publik | Detail artikel berdasarkan slug. |
+| `/:slug/view` | `POST` | 🟢 Publik | Tambah view count (rate limit 1/menit per slug per IP). |
+| `/preview/:identifier` | `GET` | 🟢 Publik + token | Preview draft, wajib `?token=` (berlaku 15 menit). |
+| `/admin/stats` | `GET` | 🛡️ `view_dashboard` | Statistik artikel milik user. |
+| `/admin/preview-token/:id` | `GET` | 🛡️ `edit_post` | Generate token preview. |
+| `/admin/all` | `GET` | 🛡️ `view_dashboard` | Daftar artikel (Super Admin: semua; lainnya: milik sendiri). |
+| `/admin/:id` | `GET` | 🛡️ `edit_post` | Detail artikel + tags untuk editor. |
+| `/` | `POST` | 🛡️ `create_post` | Buat artikel (sanitasi XSS). |
+| `/:id` | `PUT` | 🛡️ `edit_post` | Edit artikel (hanya pemilik kecuali Super Admin). |
+| `/:id` | `DELETE` | 🛡️ `delete_post` | Hapus artikel. |
 
 ---
 
-## ⚙️ Modul Pengaturan Situs (`/api/settings`)
-Pengaturan *frontend* dan *meta-data* dari blog secara global.
-
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+## 📂 Kategori & Tag (`/api/categories`, `/api/tags`)
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/` | `GET` | 🟢 **Publik** | Membaca konfigurasi CMS saat ini (Nama Situs, Meta Description Global, Logo, dll). |
-| `/` | `PUT` | 🛡️ **Izin Khusus** | Memperbarui konfigurasi situs secara global. (Membutuhkan izin `manage_settings`). |
+| `/api/categories` | `GET` | 🟢 Publik | Daftar kategori + `article_count` & `product_count`. Filter `?type=article\|product`. |
+| `/api/categories` | `POST` | 🛡️ `manage_taxonomy` | Buat kategori (`article` hierarkis / `product` datar). |
+| `/api/categories/:id` | `PUT` | 🛡️ `manage_taxonomy` | Update kategori. Tipe tidak bisa diubah bila sudah dipakai konten. |
+| `/api/categories/:id` | `DELETE` | 🛡️ `manage_taxonomy` | Hapus kategori; relasi di artikel/produk di-*null*-kan, sub-kategori dilepas. |
+| `/api/tags` | `GET` | 🟢 Publik | Daftar tag. |
+| `/api/tags/:slug` | `GET` | 🟢 Publik | **Belum terdokumentasi sebelumnya.** Detail satu tag berdasarkan slug. |
+| `/api/tags` | `POST` | 🛡️ `manage_taxonomy` | Buat tag. |
+| `/api/tags/:id` | `PUT` | 🛡️ `manage_taxonomy` | Update tag. |
+| `/api/tags/:id` | `DELETE` | 🛡️ `manage_taxonomy` | Hapus tag. |
 
 ---
 
-## 📈 Modul Dashboard (`/api/dashboard`)
-Menyediakan agregasi data dan statistik menyeluruh untuk ditampilkan pada _dashboard_ utama.
+## 🛍️ Produk Digital & Integrasi Hub (`/api/products`)
 
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+### Publik (Katalog — dipakai Hub)
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/stats` | `GET` | 🛡️ **Izin Khusus** | Menghitung total artikel, total pengguna, dan total media secara agregat. (Membutuhkan izin `view_dashboard`). |
+| `/public` | `GET` | 🟢 Publik | Daftar produk `published`. Query: `search`, `category_id`, `category_slug`, **`seller_id`** (etalase seller), `limit` (≤50), `offset`. Response: `{ data, limit, offset, total }`. Tiap item memuat `seller_id`, `seller_name`, **`seller_avatar_url`, `seller_cover_url` (URL absolut)**, serta `cover_image_url` & `detail_image_*_url`. |
+| `/public/:slug` | `GET` | 🟢 Publik | Detail produk + info seller (sama seperti di atas). `no-store` agar harga selalu real-time. Bila slug lama: `{ is_redirect: true, new_slug }`. |
+| `/public/:slug/view` | `POST` | 🟢 Publik | Tambah view count (rate limit 1/menit per slug). |
+| `/public/:slug/reviews` | `GET` | 🟢 Publik | **Belum terdokumentasi sebelumnya.** 50 ulasan terbaru: `{ success, reviews: [{id, rating, comment, created_at, user_id}] }`. `user_id` = ID akun Hub (nama diperkaya oleh Hub). |
+
+### Internal (Server-to-Server Hub)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/internal/:id/price` | `GET` | 🔐 S2S (`type: price_check`) | Harga real-time + `price_lock_token` (berlaku 90 menit). `product_id` di JWT wajib = `:id`. |
+| `/internal/:id/sale` | `POST` | 🔐 S2S (`type: sale_trigger`) | Catat penjualan ke ledger. Wajib: `hub_transaction_id`, `gross_amount` (harus = harga terkunci), `price_lock_token`, `paid_at` (≤7 hari lalu). Idempoten per `hub_transaction_id` (72 jam). |
+| `/internal/:id/download` | `POST` | 🔐 S2S (`type: download_request`) | Stream file produk dengan `Content-Disposition`. Rate limit 5000/menit. |
+| `/internal-reviews` | `POST` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Simpan/ubah ulasan `{productId, accountId, rating 1-5, comment ≤500}`; agregat rating produk diperbarui atomik. Verifikasi pembelian dilakukan di Hub. |
+| `/internal-reviews/my` | `GET` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Ulasan milik akun tertentu: `?productId=&accountId=`. |
+
+### Administratif (CMS)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/upload-file` | `POST` | 🛡️ `upload_media` | Upload file produk (.zip/.rar/.pdf, maks 50MB, *magic bytes*, streaming). Rate limit 5/menit. |
+| `/admin/all` | `GET` | 🛡️ `view_dashboard` | Daftar produk (pemilik saja kecuali Super Admin / `edit_any_product`). |
+| `/admin/:id` | `GET` | 🛡️ `edit_product` | Detail produk untuk editor. |
+| `/` | `POST` | 🛡️ `create_product` | Buat produk + snapshot harga awal. Kategori wajib bertipe `product`. |
+| `/:id` | `PUT` | 🛡️ `edit_product` | Edit produk; file lama dibersihkan bila diganti; riwayat harga dicatat bila berubah; produk `published` tidak bisa kembali ke `draft`; produk `archived` tidak bisa diedit. |
+| `/:id/archive` | `PUT` | 🛡️ `edit_product` | **Belum terdokumentasi sebelumnya.** Arsipkan produk (disembunyikan dari etalase, pembeli lama tetap bisa unduh). |
+| `/:id` | `DELETE` | 🛡️ `delete_product` | Draft → hapus total; published → diarsipkan (*soft delete*). |
 
 ---
 
-## 🔍 Modul Root & SEO Generik (Root `/`)
-Menangani *file* khusus untuk keperluan SEO dan verifikasi *health check* sistem.
+## 💰 Pendapatan Seller & Payout (`/api/earnings`) — *seluruhnya belum terdokumentasi sebelumnya*
+Semua endpoint wajib login; data seller selalu difilter dengan `user.id` dari token.
 
-| Endpoint | Method | Status Proteksi | Keterangan / Fungsi |
+| Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
-| `/` | `GET` | 🟢 **Publik** | Mengembalikan status *health check* dasar. |
-| `/sitemap.xml` | `GET` | 🟢 **Publik** | Men-generate Sitemap Index secara dinamis, yang merujuk ke sub-sitemap artikel (paginated), produk, kategori, dan tag. Memiliki proteksi *Rate Limiting* (20 req/menit) dan *Cache-Control* 1 jam. |
-| `/sitemap-posts-:page.xml` | `GET` | 🟢 **Publik** | Sub-sitemap artikel per halaman (masing-masing maks 1000 URL). |
-| `/sitemap-products-:page.xml` | `GET` | 🟢 **Publik** | Sub-sitemap produk per halaman (masing-masing maks 1000 URL). |
-| `/sitemap-taxonomy.xml` | `GET` | 🟢 **Publik** | Sub-sitemap kategori dan tag. |
-| `/robots.txt` | `GET` | 🟢 **Publik** | Men-generate dokumen *robots.txt* yang berisi direktif akses _bot_ dan _link_ sitemap. |
+| `/summary` | `GET` | 🔴 Login | Ringkasan pendapatan seller (gross, potongan admin, net, saldo). Rate limit 30/menit. |
+| `/transactions` | `GET` | 🔴 Login | Riwayat transaksi penjualan seller (paginasi). |
+| `/products` | `GET` | 🔴 Login | Performa pendapatan per produk milik seller. |
+| `/price-history/:product_id` | `GET` | 🔴 Login | Riwayat harga satu produk (hanya pemilik produk / admin). |
+| `/withdrawals` | `GET` | 🔴 Login | Riwayat pengajuan penarikan dana seller. |
+| `/withdrawals` | `POST` | 🔴 Login | Ajukan penarikan dana. Rate limit 5/menit. |
+| `/admin/overview` | `GET` | 🛡️ `view_dashboard` (admin) | Ringkasan pendapatan seluruh platform. |
+| `/admin/payout/:transaction_id` | `PUT` | 🛡️ `view_dashboard` (admin) | Update status payout satu transaksi. |
+| `/admin/fee-config` | `GET` | 🛡️ `view_dashboard` (admin) | Riwayat konfigurasi potongan admin. |
+| `/admin/fee-config` | `POST` | 🛡️ `view_dashboard` (admin) | Tetapkan konfigurasi potongan baru (`fee_bps`, `min_fee`, `max_fee`, `effective_from`). Rate limit 5/menit. |
+| `/admin/withdrawals` | `GET` | 🛡️ `view_dashboard` (admin) | Daftar seluruh pengajuan penarikan. |
+| `/admin/withdrawals/:id` | `PUT` | 🛡️ `view_dashboard` (admin) | Setujui/tolak/tandai selesai pengajuan penarikan. |
+
+---
+
+## 🖼️ Media (`/api/media`)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/:r2_key` | `GET` | 🟢 Publik | Ambil file gambar konten/produk. Cache 1 tahun. |
+| `/avatars/:r2_key` | `GET` | 🟢 Publik | Ambil gambar avatar. |
+| `/covers/:r2_key` | `GET` | 🟢 Publik | **Baru.** Ambil foto sampul seller (nilai `cover_url`). |
+| `/` | `POST` | 🛡️ `upload_media` | Upload gambar editor (`type`: `content` 1MB / `avatar` 2MB / `featured` 5MB). |
+| `/:id` | `DELETE` | 🛡️ `delete_media` | Hapus media (pemilik / `delete_any_media` / Super Admin); referensi di artikel & produk di-*null*-kan. |
+
+---
+
+## ⚙️ Pengaturan Situs (`/api/settings`)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/` | `GET` | 🟢 Publik | Konfigurasi situs (nama, meta, logo, dll). |
+| `/` | `PUT` | 🛡️ `manage_settings` | Update konfigurasi situs. |
+
+---
+
+## 📈 Dashboard & Tren
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/api/dashboard/stats` | `GET` | 🛡️ `view_dashboard` | Total artikel, pengguna, media. Rate limit 20/menit. |
+| `/api/trends/suggest` | `GET` | 🔴 Login | **Belum terdokumentasi sebelumnya.** Saran topik/keyword tren untuk penulis. |
+
+---
+
+## 🔍 SEO (Root `/`)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/` | `GET` | 🟢 Publik | Status dasar layanan. |
+| `/sitemap.xml` | `GET` | 🟢 Publik | Sitemap index (artikel, produk, taksonomi). Rate limit 20/menit, cache 1 jam. |
+| `/sitemap-posts-:page.xml` | `GET` | 🟢 Publik | Sub-sitemap artikel (maks 1000 URL/halaman). |
+| `/sitemap-products-:page.xml` | `GET` | 🟢 Publik | Sub-sitemap produk (maks 1000 URL/halaman). |
+| `/sitemap-taxonomy.xml` | `GET` | 🟢 Publik | Sub-sitemap kategori & tag. |
+| `/robots.txt` | `GET` | 🟢 Publik | Direktif bot + link sitemap. |
+
+---
+
+## 🔗 Kontrak untuk Hub: Etalase Seller
+Alur yang disarankan untuk halaman toko seller di Hub:
+1. `GET /api/users/author/:sellerId` → nama, avatar, **foto sampul**, bio, sosial media.
+2. `GET /api/products/public?seller_id=:sellerId&limit=12&offset=0` → katalog produk seller.
+3. `avatar_url`/`cover_url` dari langkah 1 bersifat **relatif** → gabungkan dengan base URL CMS. Field `seller_*_url` dari langkah 2 sudah **absolut**.
 
 > [!TIP]
-> **Catatan Persiapan Deployment:**
-> Pastikan variabel rahasia (`JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD_HASH`, `BREVO_API_KEY`, dan `ALLOWED_ORIGINS`) tidak tersimpan ke dalam _source code_ git. Konfigurasikan melalui mekanisme *secret management* platform Anda saat akan merilis ke produksi.
+> **Catatan Deployment:** semua rahasia (`JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD_HASH`, `BREVO_API_KEY`, `HUB_PUBLIC_KEY`, `HUB_URL`, `ALLOWED_ORIGINS`) wajib dikelola lewat secret manager, bukan di source code. Deploy hanya lewat CLI, bukan auto-deploy dari repositori.

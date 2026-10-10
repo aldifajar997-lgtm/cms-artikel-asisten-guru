@@ -1,0 +1,2 @@
+ALTER TABLE posts ADD COLUMN geo_original_angle INTEGER DEFAULT 0;
+ALTER TABLE posts ADD COLUMN geo_comprehensive INTEGER DEFAULT 0;

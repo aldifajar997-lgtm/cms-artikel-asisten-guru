@@ -14,6 +14,12 @@ import xss from 'xss'
 
 const cleanText = (val: string) => xss(val, { whiteList: {}, stripIgnoreTag: true, stripIgnoreTagBody: ['script'] })
 
+const toAbsoluteMediaUrl = (origin: string, url: unknown): string | null => {
+  if (!url || typeof url !== 'string') return null
+  if (/^https?:\/\//i.test(url)) return url
+  return url.startsWith('/') ? `${origin}${url}` : `${origin}/${url}`
+}
+
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // --- PUBLIC AUTHOR PROFILE ---
@@ -23,7 +29,7 @@ users.get('/author/:id', rateLimit(500, 60, 'public_author'), async (c) => {
   
   // Hanya menyeleksi field yang aman untuk publik, dan memastikan user aktif
   const author = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.avatar_url, u.bio, u.portfolio_url, u.primary_niche,
+    SELECT u.id, u.name, u.avatar_url, u.cover_url, u.bio, u.portfolio_url, u.primary_niche,
            u.social_linkedin, u.social_twitter, u.social_instagram, u.social_facebook, u.social_tiktok
     FROM users u
     WHERE u.id = ? AND u.is_active = 1
@@ -33,7 +39,14 @@ users.get('/author/:id', rateLimit(500, 60, 'public_author'), async (c) => {
     throw new HTTPException(404, { message: 'Penulis tidak ditemukan atau tidak aktif.' })
   }
 
-  return c.json(author)
+  const origin = new URL(c.req.url).origin;
+  const mappedAuthor = {
+    ...author,
+    avatar_url: toAbsoluteMediaUrl(origin, author.avatar_url),
+    cover_url: toAbsoluteMediaUrl(origin, author.cover_url)
+  }
+
+  return c.json(mappedAuthor)
 })
 
 // Semua endpoint di bawah ini membutuhkan autentikasi
@@ -45,14 +58,16 @@ users.get('/me', async (c) => {
   const user = c.get('user')
   
   const dbUser = await c.env.DB.prepare(`
-    SELECT u.id, u.email, u.name, u.avatar_url, u.is_active, u.created_at, r.name as role,
+    SELECT u.id, u.email, u.name, u.avatar_url, u.is_active, u.created_at, GROUP_CONCAT(r.name, ', ') as role,
            u.bio, u.portfolio_url, u.target_min_words, u.target_keyword_density, 
            u.preferred_tone, u.main_language, u.monthly_article_goal, u.monthly_word_goal, u.primary_niche,
-           u.social_linkedin, u.social_twitter, u.social_instagram, u.social_facebook, u.social_tiktok
+           u.social_linkedin, u.social_twitter, u.social_instagram, u.social_facebook, u.social_tiktok,
+           u.cover_url
     FROM users u
     LEFT JOIN user_roles ur ON u.id = ur.user_id
     LEFT JOIN roles r ON ur.role_id = r.id
     WHERE u.id = ?
+    GROUP BY u.id
   `).bind(user.id).first()
 
   if (dbUser) {
@@ -71,7 +86,7 @@ users.get('/me', async (c) => {
       preferred_tone: null, main_language: null,
       monthly_article_goal: null, monthly_word_goal: null,
       social_linkedin: null, social_twitter: null, social_instagram: null,
-      social_facebook: null, social_tiktok: null,
+      social_facebook: null, social_tiktok: null, cover_url: null,
       is_active: 1, created_at: new Date().toISOString()
     })
   }
@@ -82,8 +97,10 @@ users.get('/me', async (c) => {
 const updateMeSchema = z.object({
   name: z.string().max(100).nullable().optional().transform(v => v ? cleanText(v) : v),
   avatar_url: z.string().nullable().optional(),
+  // Hanya path sampul hasil upload sendiri (divalidasi lagi terhadap user.id di handler), atau kosong untuk menghapus
+  cover_url: z.union([z.string().regex(/^\/api\/media\/covers\/[A-Za-z0-9._-]+$/, 'Foto sampul tidak valid.'), z.literal('')]).nullable().optional(),
   bio: z.string().max(500, 'Bio maksimal 500 karakter').nullable().optional().transform(v => v ? cleanText(v) : v),
-  portfolioUrl: z.string().nullable().optional(),
+  portfolioUrl: z.union([z.string().max(300).refine(v => !/^\s*(javascript|data|vbscript):/i.test(v), 'URL portfolio tidak valid.'), z.literal('')]).nullable().optional(),
   targetMinWords: z.number().min(0).nullable().optional(),
   targetKeywordDensity: z.number().min(0).max(10).nullable().optional(),
   preferredTone: z.string().max(100).nullable().optional().transform(v => v ? cleanText(v) : v),
@@ -102,10 +119,15 @@ users.put('/me', rateLimit(10, 60, 'update_me'), zValidator('json', updateMeSche
   const user = c.get('user')
 
   const { 
-    name, avatar_url, bio, portfolioUrl, targetMinWords, targetKeywordDensity, 
+    name, avatar_url, cover_url, bio, portfolioUrl, targetMinWords, targetKeywordDensity, 
     preferredTone, mainLanguage, monthlyArticleGoal, monthlyWordGoal, primaryNiche,
     socialLinkedin, socialTwitter, socialInstagram, socialFacebook, socialTiktok
   } = c.req.valid('json')
+
+  // Cegah user memasang file sampul milik user lain
+  if (cover_url && !cover_url.startsWith(`/api/media/covers/${user.id}-`)) {
+    throw new HTTPException(400, { message: 'Foto sampul tidak valid. Silakan unggah ulang.' })
+  }
   
   // Allow clearing avatar_url or name by transforming empty string to null
   const finalName = name === '' || name === undefined ? null : name;
@@ -165,6 +187,21 @@ users.put('/me', rateLimit(10, 60, 'update_me'), zValidator('json', updateMeSche
       primaryNiche || null,
       socialLinkedin ?? null, socialTwitter ?? null, socialInstagram ?? null, socialFacebook ?? null, socialTiktok ?? null
     ).run()
+  }
+
+  // Sampul: hanya diproses bila field dikirim (klien lama yang tidak mengirim cover_url tidak menghapus sampul)
+  if (cover_url !== undefined) {
+    const finalCover = cover_url === '' || cover_url === null ? null : cover_url
+    const coverRow = await c.env.DB.prepare('SELECT cover_url FROM users WHERE id = ?').bind(user.id).first()
+    if (coverRow && coverRow.cover_url && coverRow.cover_url !== finalCover) {
+      const match = (coverRow.cover_url as string).match(/\/api\/media\/covers\/(.+)$/)
+      if (match && match[1]) {
+        const oldKey = `covers/${match[1]}`
+        await c.env.R2.delete(oldKey).catch(() => console.error('Gagal menghapus sampul lama dari R2 di PUT /me', oldKey))
+        await c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(oldKey).run()
+      }
+    }
+    await c.env.DB.prepare('UPDATE users SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(finalCover, user.id).run()
   }
 
   return c.json({ message: 'Profil berhasil diperbarui.' })
@@ -285,18 +322,60 @@ users.post('/me/avatar', rateLimit(5, 60, 'avatar_upload'), async (c) => {
   return c.json({ message: 'Avatar berhasil diunggah.', avatar_url: newAvatarUrl })
 })
 
+// --- UPLOAD FOTO SAMPUL TOKO ---
+// File diunggah ke R2 dulu; penyimpanan ke kolom users.cover_url dilakukan saat PUT /me (tombol Simpan)
+users.post('/me/cover', rateLimit(5, 60, 'cover_upload'), async (c) => {
+  const user = c.get('user')
+
+  const body = await c.req.parseBody()
+  const file = body['cover']
+
+  if (!file || !(file instanceof File)) {
+    throw new HTTPException(400, { message: 'File foto sampul tidak ditemukan.' })
+  }
+
+  const MAX_SIZE = 3 * 1024 * 1024
+  if (file.size > MAX_SIZE) {
+    throw new HTTPException(400, { message: 'Ukuran foto sampul melebihi batas (Max 3MB).' })
+  }
+
+  const arrayBuffer = await file.arrayBuffer()
+  const detectedContentType = isSafeImage(arrayBuffer) ? getContentTypeFromMagicBytes(arrayBuffer) : null
+  if (!detectedContentType) {
+    throw new HTTPException(400, { message: 'Format file tidak diizinkan. Hanya JPG, PNG, WEBP yang diterima.' })
+  }
+
+  let ext = 'jpg'
+  if (detectedContentType === 'image/png') ext = 'png'
+  if (detectedContentType === 'image/webp') ext = 'webp'
+
+  const safeUserId = String(user.id).replace(/[^A-Za-z0-9_-]/g, '')
+  const fileName = `${safeUserId}-${Date.now()}.${ext}`
+  const objectPath = `covers/${fileName}`
+
+  await c.env.R2.put(objectPath, arrayBuffer, {
+    httpMetadata: { contentType: detectedContentType }
+  })
+
+  await c.env.DB.prepare('INSERT INTO media (id, r2_key, file_name, mime_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), objectPath, fileName, detectedContentType, file.size, user.id === 'super_admin' ? null : user.id).run()
+
+  return c.json({ message: 'Foto sampul berhasil diunggah.', cover_url: `/api/media/covers/${fileName}` })
+})
+
 // --- MANAJEMEN USER (Oleh Admin) ---
 
 const createUserSchema = z.object({
   email: z.string().email().trim().toLowerCase(),
-  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v)
+  name: z.string().max(100).optional().transform(v => v ? cleanText(v) : v),
+  role_names: z.array(z.string()).default(['Writer'])
 })
 
 users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserSchema), async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat melakukan aksi ini.' })
 
-  const { email, name } = c.req.valid('json')
+  const { email, name, role_names } = c.req.valid('json')
 
   // SECURITY PATCH: Cegah DoS pada Super Admin dengan memblokir invitation ke email sistem
   if (c.env.SUPER_ADMIN_EMAIL && email === c.env.SUPER_ADMIN_EMAIL.toLowerCase()) {
@@ -308,10 +387,10 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
   let userId = ''
   let userName = name
 
-  // Invitation selalu sebagai Writer — upgrade role dilakukan terpisah oleh Super Admin
-  const writerRole = await c.env.DB.prepare('SELECT id FROM roles WHERE name = ?').bind('Writer').first()
-  if (!writerRole) throw new HTTPException(500, { message: 'Terjadi kendala pada konfigurasi sistem. Hubungi administrator.' })
-  const assignedRoleId = writerRole.id as string
+  // Mengambil role ID berdasarkan input multiple
+  const placeholders = role_names.map(() => '?').join(',')
+  const targetRoles = await c.env.DB.prepare(`SELECT id, name FROM roles WHERE name IN (${placeholders})`).bind(...role_names).all()
+  if (targetRoles.results.length !== role_names.length) throw new HTTPException(400, { message: 'Satu atau lebih Role tidak ditemukan.' })
 
   if (exists) {
     userId = exists.id as string
@@ -323,10 +402,14 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
     const randomTempPassword = crypto.randomUUID() + crypto.randomUUID()
     const hashed = await hashPassword(randomTempPassword)
 
-    await c.env.DB.batch([
-      c.env.DB.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').bind(userId, email, hashed, name || null),
-      c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, assignedRoleId)
-    ])
+    const stmts: any[] = [
+      c.env.DB.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').bind(userId, email, hashed, name || null)
+    ]
+    targetRoles.results.forEach((r: any) => {
+      stmts.push(c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(userId, r.id))
+    })
+
+    await c.env.DB.batch(stmts)
   }
 
   // --- EMAIL UNDANGAN / RESEND UNDANGAN (fix C4: kirim link setup) ---
@@ -362,7 +445,7 @@ users.post('/', rateLimit(10, 60, 'create_user'), zValidator('json', createUserS
             NAME: userName || 'Bapak/Ibu',
             EMAIL: email,
             SETUP_LINK: setupLink,
-            ROLE: 'Writer'
+            ROLE: role_names.join(', ')
           }
         })
       })
@@ -390,10 +473,11 @@ users.get('/', rateLimit(500, 60, 'public_users_list'), async (c) => {
   const { limit, offset } = getPagination(c, 50, 100)
 
   const list = await c.env.DB.prepare(`
-    SELECT u.id, u.email, u.name, u.avatar_url, u.is_active, u.created_at, r.name as role
+    SELECT u.id, u.email, u.name, u.avatar_url, u.is_active, u.created_at, GROUP_CONCAT(r.name, ', ') as role
     FROM users u
     LEFT JOIN user_roles ur ON u.id = ur.user_id
     LEFT JOIN roles r ON ur.role_id = r.id
+    GROUP BY u.id
     ORDER BY u.created_at DESC 
     LIMIT ? OFFSET ?
   `).bind(limit, offset).all()
@@ -437,12 +521,15 @@ users.get('/roles/list', async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Akses ditolak.' })
 
-  const roles = await c.env.DB.prepare('SELECT id, name, description FROM roles').all()
+  const roles = await c.env.DB.prepare("SELECT id, name, description FROM roles WHERE name != 'Super Admin'").all()
   return c.json(roles.results)
 })
 
 const assignRoleSchema = z.object({
-  role_id: z.string()
+  role_id: z.string().optional(),
+  role_ids: z.array(z.string()).optional()
+}).refine(data => data.role_id || (data.role_ids && data.role_ids.length > 0), {
+  message: "Minimal satu role_id harus diberikan."
 })
 
 users.put('/:id/role', rateLimit(30, 60, 'assign_role'), zValidator('json', assignRoleSchema), async (c) => {
@@ -453,18 +540,36 @@ users.put('/:id/role', rateLimit(30, 60, 'assign_role'), zValidator('json', assi
   if (targetId === 'super_admin') {
     throw new HTTPException(403, { message: 'Role Super Admin sistem tidak dapat diubah.' })
   }
-  const { role_id } = c.req.valid('json')
+  const { role_id, role_ids } = c.req.valid('json')
+  const finalRoleIds = role_ids || (role_id ? [role_id] : [])
 
-  // Validasi role yang di-assign benar-benar ada di database
-  const roleExists = await c.env.DB.prepare('SELECT id FROM roles WHERE id = ?').bind(role_id).first()
-  if (!roleExists) {
-    throw new HTTPException(400, { message: 'Role tidak ditemukan.' })
+  // Validasi user target
+  const userExists = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(targetId).first()
+  if (!userExists) {
+    throw new HTTPException(404, { message: 'Pengguna tidak ditemukan.' })
   }
 
-  await c.env.DB.batch([
-    c.env.DB.prepare('DELETE FROM user_roles WHERE user_id = ?').bind(targetId),
-    c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(targetId, role_id)
-  ])
+  // Validasi semua role yang di-assign benar-benar ada di database
+  const placeholders = finalRoleIds.map(() => '?').join(',')
+  const roleExistsQuery = await c.env.DB.prepare(`SELECT id, name FROM roles WHERE id IN (${placeholders})`).bind(...finalRoleIds).all()
+  
+  if (roleExistsQuery.results.length !== finalRoleIds.length) {
+    throw new HTTPException(400, { message: 'Satu atau lebih Role tidak ditemukan.' })
+  }
+  
+  const hasSuperAdmin = roleExistsQuery.results.some((r: any) => r.name === 'Super Admin')
+  if (hasSuperAdmin) {
+    throw new HTTPException(403, { message: 'Role Super Admin hanya boleh dimiliki oleh 1 akun sistem utama.' })
+  }
+
+  const stmts = [
+    c.env.DB.prepare('DELETE FROM user_roles WHERE user_id = ?').bind(targetId)
+  ]
+  finalRoleIds.forEach(id => {
+    stmts.push(c.env.DB.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').bind(targetId, id))
+  })
+
+  await c.env.DB.batch(stmts)
 
   return c.json({ message: 'Role berhasil diperbarui.' })
 })

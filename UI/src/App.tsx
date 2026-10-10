@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Article, Category, UserProfile, Tag, ArticleStats, Product } from './types';
 import { Navigation, ActiveTab } from './components/Navigation';
-import { ArticleEditor } from './components/ArticleEditor';
-import { ArticleList } from './components/ArticleList';
-import { CategorySettings } from './components/CategorySettings';
-import { ProfileSettings } from './components/ProfileSettings';
-import { UserSettings } from './components/UserSettings';
-import { SiteSettings } from './components/SiteSettings';
-import { Glosarium } from './components/Glosarium';
-import { ProductList } from './components/ProductList';
-import { ProductEditor } from './components/ProductEditor';
-import { generateSlug } from './utils/seoAnalyzer';
-import { Dashboard } from './components/Dashboard';
-import { Login } from './components/Login';
-import { ForgotPassword } from './components/ForgotPassword';
-import { ResetPassword } from './components/ResetPassword';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+const ArticleEditor = React.lazy(() => import('./components/ArticleEditor').then(m => ({ default: m.ArticleEditor })));
+const ArticleList = React.lazy(() => import('./components/ArticleList').then(m => ({ default: m.ArticleList })));
+const CategorySettings = React.lazy(() => import('./components/CategorySettings').then(m => ({ default: m.CategorySettings })));
+const ProfileSettings = React.lazy(() => import('./components/ProfileSettings').then(m => ({ default: m.ProfileSettings })));
+const UserSettings = React.lazy(() => import('./components/UserSettings').then(m => ({ default: m.UserSettings })));
+const SiteSettings = React.lazy(() => import('./components/SiteSettings').then(m => ({ default: m.SiteSettings })));
+const Glosarium = React.lazy(() => import('./components/Glosarium').then(m => ({ default: m.Glosarium })));
+const ProductList = React.lazy(() => import('./components/ProductList').then(m => ({ default: m.ProductList })));
+const ProductEditor = React.lazy(() => import('./components/ProductEditor').then(m => ({ default: m.ProductEditor })));
+const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const EarningsAdminPanel = React.lazy(() => import('./components/EarningsAdminPanel').then(m => ({ default: m.EarningsAdminPanel })));
+const Login = React.lazy(() => import('./components/Login').then(m => ({ default: m.Login })));
+const ForgotPassword = React.lazy(() => import('./components/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
+const ResetPassword = React.lazy(() => import('./components/ResetPassword').then(m => ({ default: m.ResetPassword })));
 import api, { setAccessToken, handleApiError } from './utils/api';
 import { Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -36,6 +38,7 @@ export default function App() {
     totalArticles: 0,
     totalWords: 0,
     avgScore: 0,
+    avgGeoScore: 0,
     totalViews: 0,
     publishedCount: 0,
     draftCount: 0
@@ -50,10 +53,10 @@ export default function App() {
   const [isLoadingMoreCategories, setIsLoadingMoreCategories] = useState<boolean>(false);
   const [tags, setTags] = useState<Tag[]>([]);
   const [profile, setProfile] = useState<UserProfile>({
-    name: 'Admin',
+    name: '',
     email: '',
-    avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-    role: 'Admin',
+    avatarUrl: '',
+    role: '',
     targetMinWords: 1200,
     targetKeywordDensity: 1.5,
     monthlyArticleGoal: 10,
@@ -81,6 +84,7 @@ export default function App() {
           totalArticles: res.data.data.total_articles || 0,
           totalWords: res.data.data.total_words || 0,
           avgScore: Math.round(res.data.data.avg_score || 0),
+          avgGeoScore: Math.round(res.data.data.avg_geo_score || 0),
           totalViews: res.data.data.total_views || 0,
           publishedCount: res.data.data.published_count || 0,
           draftCount: res.data.data.draft_count || 0
@@ -122,6 +126,9 @@ export default function App() {
           metaDescription: p.meta_description || '',
           status: p.status,
           seoScore: p.seo_score || 0,
+          geoScore: p.geo_score || 0,
+          geoOriginalAngle: p.geo_original_angle === 1,
+          geoComprehensive: p.geo_comprehensive === 1,
           wordCount: p.word_count || 0,
           readingTimeMinutes: p.reading_time_minutes || 0,
           viewCount: p.view_count || 0,
@@ -202,8 +209,8 @@ export default function App() {
   }, []);
 
   const fetchProfileAndData = async () => {
-    try {
-      const profileRes = await api.get('/users/me');
+    // Jalankan semua requests secara paralel untuk meminimalkan waktu "Memuat sesi..."
+    const fetchProfileTask = api.get('/users/me').then(profileRes => {
       let finalAvatarUrl = profileRes.data.avatar_url ?? '';
       if (finalAvatarUrl && finalAvatarUrl.startsWith('/api/')) {
         const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
@@ -230,20 +237,12 @@ export default function App() {
         socialTwitter: profileRes.data.social_twitter ?? '',
         socialInstagram: profileRes.data.social_instagram ?? '',
         socialFacebook: profileRes.data.social_facebook ?? '',
-        socialTiktok: profileRes.data.social_tiktok ?? ''
+        socialTiktok: profileRes.data.social_tiktok ?? '',
+        coverUrl: profileRes.data.cover_url ?? ''
       }));
-    } catch (profileErr) {
-      console.error('Failed to fetch profile', profileErr);
-    }
+    }).catch(profileErr => console.error('Failed to fetch profile', profileErr));
 
-    // Fetch stats and initial articles
-    await fetchGlobalStats();
-    await fetchArticlesList(currentFilters);
-    await fetchProductsList();
-
-    // Fetch categories
-    try {
-      const catRes = await api.get('/categories?limit=100&offset=0');
+    const fetchCategoriesTask = api.get('/categories?limit=100&offset=0').then(catRes => {
       if (catRes.data?.data) {
         const fetchedCategories = catRes.data.data.map((c: any) => ({
           id: c.id,
@@ -262,19 +261,22 @@ export default function App() {
         setHasMoreCategories(fetchedCategories.length === 100);
         setCategoryOffset(100);
       }
-    } catch (catErr) {
-      console.error('Failed to fetch categories', catErr);
-    }
+    }).catch(catErr => console.error('Failed to fetch categories', catErr));
 
-    // Fetch tags
-    try {
-      const tagsRes = await api.get('/tags?limit=100');
+    const fetchTagsTask = api.get('/tags?limit=100').then(tagsRes => {
       if (tagsRes.data?.data) {
         setTags(tagsRes.data.data);
       }
-    } catch (tagsErr) {
-      console.error('Failed to fetch tags', tagsErr);
-    }
+    }).catch(tagsErr => console.error('Failed to fetch tags', tagsErr));
+
+    await Promise.all([
+      fetchProfileTask,
+      fetchCategoriesTask,
+      fetchTagsTask,
+      fetchGlobalStats(),
+      fetchArticlesList(currentFilters),
+      fetchProductsList()
+    ]);
   };
 
 
@@ -351,12 +353,16 @@ export default function App() {
         meta_description: savedArticle.metaDescription,
         status: savedArticle.status,
         seo_score: savedArticle.seoScore,
+        geo_score: savedArticle.geoScore,
+        geo_original_angle: savedArticle.geoOriginalAngle ? 1 : 0,
+        geo_comprehensive: savedArticle.geoComprehensive ? 1 : 0,
         word_count: savedArticle.wordCount,
         reading_time_minutes: savedArticle.readingTimeMinutes,
         featured_image: savedArticle.featuredImage,
         featured_image_alt: savedArticle.featuredImageAlt,
         featured_image_caption: savedArticle.featuredImageCaption,
-        tag_ids: savedArticle.tagIds || []
+        tag_ids: savedArticle.tagIds || [],
+        session_media_keys: savedArticle.sessionMediaKeys || []
       };
 
       const isNew = savedArticle.id.startsWith('art-'); // Generated frontend ID prefix
@@ -395,6 +401,7 @@ export default function App() {
       metaDescription: '',
       status: 'draft',
       seoScore: 40,
+      geoScore: 0,
       wordCount: 80,
       readingTimeMinutes: 1,
       viewCount: 0,
@@ -479,6 +486,9 @@ export default function App() {
         meta_description: article.metaDescription,
         status: 'draft',
         seo_score: article.seoScore,
+        geo_score: article.geoScore,
+        geo_original_angle: article.geoOriginalAngle ? 1 : 0,
+        geo_comprehensive: article.geoComprehensive ? 1 : 0,
         word_count: article.wordCount,
         reading_time_minutes: article.readingTimeMinutes,
         featured_image: article.featuredImage,
@@ -582,6 +592,13 @@ export default function App() {
         price: savedProduct.price,
         original_price: savedProduct.original_price,
         cover_image_key: savedProduct.cover_image_key,
+        cover_image_alt: savedProduct.cover_image_alt,
+        detail_image_1_key: savedProduct.detail_image_1_key,
+        detail_image_1_alt: savedProduct.detail_image_1_alt,
+        detail_image_2_key: savedProduct.detail_image_2_key,
+        detail_image_2_alt: savedProduct.detail_image_2_alt,
+        detail_image_3_key: savedProduct.detail_image_3_key,
+        detail_image_3_alt: savedProduct.detail_image_3_alt,
         file_r2_key: savedProduct.file_r2_key,
         status: savedProduct.status,
         category_id: savedProduct.category_id,
@@ -610,27 +627,13 @@ export default function App() {
   };
 
   const handleDeleteProduct = async (id: string) => {
-    const product = products.find(p => p.id === id);
-    const isDraft = product?.status === 'draft';
-
-    const title = isDraft ? 'Hapus Permanen Produk' : 'Arsipkan Produk';
-    const message = isDraft 
-      ? 'Hapus produk draft ini secara permanen? File dan data akan dihapus selamanya.' 
-      : 'Arsipkan produk ini? Produk tidak akan tampil di toko, namun file tetap ada untuk pembeli lama.';
-    const confirmBtn = isDraft ? 'Hapus Permanen' : 'Arsipkan';
-
-    const confirmed = await showConfirm(title, message, confirmBtn, 'Batal');
+    const confirmed = await showConfirm('Hapus Permanen Produk', 'Hapus produk ini secara permanen? File dan data akan dihapus selamanya.', 'Hapus Permanen', 'Batal');
     if (confirmed) {
       if (!id.startsWith('prod-')) {
         try {
-          const res = await api.delete(`/products/${id}`);
-          if (res.data?.message?.includes('permanen')) {
-            // Hard delete
-            setProducts((prev) => prev.filter((p) => p.id !== id));
-          } else {
-            // Soft delete
-            setProducts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'archived' } : p));
-          }
+          await api.delete(`/products/${id}`);
+          setProducts((prev) => prev.filter((p) => p.id !== id));
+          success('Produk berhasil dihapus permanen.');
         } catch (err: any) {
           console.error('Gagal menghapus produk:', err);
           showError('Gagal menghapus produk. ' + handleApiError(err));
@@ -643,6 +646,22 @@ export default function App() {
       
       if (currentProduct?.id === id) {
         handleNewProduct();
+      }
+    }
+  };
+
+  const handleArchiveProduct = async (id: string) => {
+    const confirmed = await showConfirm('Arsipkan Produk', 'Arsipkan produk ini? Produk tidak akan tampil di toko, namun file tetap ada untuk pembeli lama.', 'Arsipkan', 'Batal');
+    if (confirmed) {
+      if (!id.startsWith('prod-')) {
+        try {
+          await api.put(`/products/${id}/archive`);
+          setProducts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'archived' } : p));
+          success('Produk berhasil diarsipkan.');
+        } catch (err: any) {
+          console.error('Gagal mengarsipkan produk:', err);
+          showError('Gagal mengarsipkan produk. ' + handleApiError(err));
+        }
       }
     }
   };
@@ -739,29 +758,44 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    if (authView === 'reset-password' && resetToken) {
+    const renderAuth = () => {
+      if (authView === 'reset-password' && resetToken) {
+        return (
+          <ResetPassword 
+            token={resetToken} 
+            onSuccessRedirect={() => setAuthView('login')} 
+          />
+        );
+      }
+
+      if (authView === 'forgot-password') {
+        return <ForgotPassword onBackToLogin={() => setAuthView('login')} />;
+      }
+
       return (
-        <ResetPassword 
-          token={resetToken} 
-          onSuccessRedirect={() => setAuthView('login')} 
+        <Login 
+          onLoginSuccess={async () => {
+            setIsInitializing(true);
+            await fetchProfileAndData();
+            setIsAuthenticated(true);
+            setIsInitializing(false);
+          }} 
+          onForgotPassword={() => setAuthView('forgot-password')}
         />
       );
-    }
-
-    if (authView === 'forgot-password') {
-      return <ForgotPassword onBackToLogin={() => setAuthView('login')} />;
-    }
+    };
 
     return (
-      <Login 
-        onLoginSuccess={async () => {
-          setIsInitializing(true);
-          await fetchProfileAndData();
-          setIsAuthenticated(true);
-          setIsInitializing(false);
-        }} 
-        onForgotPassword={() => setAuthView('forgot-password')}
-      />
+      <ErrorBoundary fallbackMessage="Terjadi kesalahan saat memuat halaman masuk. Silakan coba muat ulang.">
+        <Suspense fallback={
+          <div className="min-h-screen w-full bg-slate-50 flex flex-col items-center justify-center font-sans">
+            <Loader2 className="w-10 h-10 animate-spin text-teal-500 mb-4" />
+            <p className="text-slate-500">Memuat antarmuka login...</p>
+          </div>
+        }>
+          {renderAuth()}
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
@@ -814,126 +848,141 @@ export default function App() {
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className="flex-1 flex flex-col h-full overflow-hidden"
           >
-            {activeTab === 'buat-artikel' ? (
-              currentArticle ? (
-                <ArticleEditor
-                  key={currentArticle.id}
-                  article={currentArticle}
-                  categories={categories}
-                  tags={tags}
-                  profile={profile}
-                  onSave={handleSaveArticle}
-                  onBack={async () => {
-                    if (hasUnsavedChanges) {
-                      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
-                      if (!confirmed) return;
-                    }
-                    setActiveTab('list-artikel');
-                  }}
-                  onPreview={handlePreviewArticle}
-                  onTagsChange={(newTags) => setTags(newTags)}
-                  setHasUnsavedChanges={setHasUnsavedChanges}
-                />
-              ) : (
+            <ErrorBoundary>
+              <Suspense fallback={
                 <div className="flex-1 flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
-                  <p className="text-slate-500">Memuat editor...</p>
+                  <p className="text-slate-500">Memuat modul...</p>
                 </div>
-              )
-            ) : activeTab === 'buat-produk' ? (
-              currentProduct ? (
-                <ProductEditor
-                  key={currentProduct.id}
-                  product={currentProduct}
-                  categories={categories}
-                  onSave={handleSaveProduct}
-                  onBack={async () => {
-                    if (hasUnsavedChanges) {
-                      const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
-                      if (!confirmed) return;
-                    }
-                    setActiveTab('list-produk');
-                  }}
-                  setHasUnsavedChanges={setHasUnsavedChanges}
-                />
+              }>
+                {activeTab === 'buat-artikel' ? (
+                  currentArticle ? (
+                  <ArticleEditor
+                    key={currentArticle.id}
+                    article={currentArticle}
+                    categories={categories}
+                    tags={tags}
+                    profile={profile}
+                    onSave={handleSaveArticle}
+                    onBack={async () => {
+                      if (hasUnsavedChanges) {
+                        const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+                        if (!confirmed) return;
+                      }
+                      setActiveTab('list-artikel');
+                    }}
+                    onPreview={handlePreviewArticle}
+                    onTagsChange={(newTags) => setTags(newTags)}
+                    setHasUnsavedChanges={setHasUnsavedChanges}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
+                    <p className="text-slate-500">Memuat editor...</p>
+                  </div>
+                )
+              ) : activeTab === 'buat-produk' ? (
+                currentProduct ? (
+                  <ProductEditor
+                    key={currentProduct.id}
+                    product={currentProduct}
+                    categories={categories}
+                    onSave={handleSaveProduct}
+                    onBack={async () => {
+                      if (hasUnsavedChanges) {
+                        const confirmed = await showConfirm('Konfirmasi', 'Ada perubahan yang belum disimpan. Yakin ingin keluar?');
+                        if (!confirmed) return;
+                      }
+                      setActiveTab('list-produk');
+                    }}
+                    setHasUnsavedChanges={setHasUnsavedChanges}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
+                    <p className="text-slate-500">Memuat editor produk...</p>
+                  </div>
+                )
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-teal-500 mb-4" />
-                  <p className="text-slate-500">Memuat editor produk...</p>
+                <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 sm:p-6 lg:p-8">
+                  <div className="max-w-6xl mx-auto">
+                    {activeTab === 'dashboard' && (
+                      <Dashboard profile={profile} stats={globalStats} />
+                    )}
+
+                    {activeTab === 'list-artikel' && (
+                      <ArticleList
+                        articles={articles}
+                        categories={categories}
+                        profile={profile}
+                        stats={globalStats}
+                        hasMore={hasMoreArticles}
+                        isLoadingMore={isLoadingMore}
+                        onLoadMore={handleLoadMore}
+                        onFilterChange={(filters) => fetchArticlesList(filters)}
+                        onSelectArticle={handleSelectArticleFromList}
+                        onNewArticle={handleNewArticle}
+                        onDeleteArticle={handleDeleteArticle}
+                        onDuplicateArticle={handleDuplicateArticle}
+                        onPreviewArticle={handlePreviewArticle}
+                      />
+                    )}
+
+                    {activeTab === 'pengaturan-kategori' && (
+                      <CategorySettings
+                        categories={categories}
+                        hasMore={hasMoreCategories}
+                        isLoadingMore={isLoadingMoreCategories}
+                        onLoadMore={handleLoadMoreCategories}
+                        onAddCategory={handleAddCategory}
+                        onUpdateCategory={handleUpdateCategory}
+                        onDeleteCategory={handleDeleteCategory}
+                      />
+                    )}
+
+                    {activeTab === 'pengaturan-profile' && (
+                      <ProfileSettings
+                        profile={profile}
+                        onUpdateProfile={handleUpdateProfile}
+                        totalArticlesWritten={totalArticlesWritten}
+                        totalWordsWritten={totalWordsWritten}
+                      />
+                    )}
+
+                    {activeTab === 'pengaturan-user' && (
+                      <UserSettings />
+                    )}
+
+                    {activeTab === 'pengaturan-situs' && (
+                      <SiteSettings />
+                    )}
+
+                    {activeTab === 'pengaturan-pendapatan' && (
+                      <EarningsAdminPanel />
+                    )}
+
+                    {activeTab === 'glosarium' && (
+                      <Glosarium />
+                    )}
+
+                    {activeTab === 'list-produk' && (
+                      <ProductList
+                        userRole={profile.role}
+                        products={products}
+                        hasMore={hasMoreProducts}
+                        isLoadingMore={isLoadingMoreProducts}
+                        onLoadMore={handleLoadMoreProducts}
+                        onSelectProduct={handleSelectProductFromList}
+                        onNewProduct={handleNewProduct}
+                        onDeleteProduct={handleDeleteProduct}
+                        onArchiveProduct={handleArchiveProduct}
+                      />
+                    )}
+                  </div>
                 </div>
-              )
-            ) : (
-              <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 sm:p-6 lg:p-8">
-                <div className="max-w-6xl mx-auto">
-                  {activeTab === 'dashboard' && (
-                    <Dashboard profile={profile} stats={globalStats} />
-                  )}
-
-                  {activeTab === 'list-artikel' && (
-                    <ArticleList
-                      articles={articles}
-                      categories={categories}
-                      profile={profile}
-                      stats={globalStats}
-                      hasMore={hasMoreArticles}
-                      isLoadingMore={isLoadingMore}
-                      onLoadMore={handleLoadMore}
-                      onFilterChange={(filters) => fetchArticlesList(filters)}
-                      onSelectArticle={handleSelectArticleFromList}
-                      onNewArticle={handleNewArticle}
-                      onDeleteArticle={handleDeleteArticle}
-                      onDuplicateArticle={handleDuplicateArticle}
-                      onPreviewArticle={handlePreviewArticle}
-                    />
-                  )}
-
-                  {activeTab === 'pengaturan-kategori' && (
-                    <CategorySettings
-                      categories={categories}
-                      hasMore={hasMoreCategories}
-                      isLoadingMore={isLoadingMoreCategories}
-                      onLoadMore={handleLoadMoreCategories}
-                      onAddCategory={handleAddCategory}
-                      onUpdateCategory={handleUpdateCategory}
-                      onDeleteCategory={handleDeleteCategory}
-                    />
-                  )}
-
-                  {activeTab === 'pengaturan-profile' && (
-                    <ProfileSettings
-                      profile={profile}
-                      onUpdateProfile={handleUpdateProfile}
-                      totalArticlesWritten={totalArticlesWritten}
-                      totalWordsWritten={totalWordsWritten}
-                    />
-                  )}
-
-                  {activeTab === 'pengaturan-user' && (
-                    <UserSettings />
-                  )}
-
-                  {activeTab === 'pengaturan-situs' && (
-                    <SiteSettings />
-                  )}
-
-                  {activeTab === 'glosarium' && (
-                    <Glosarium />
-                  )}
-
-                  {activeTab === 'list-produk' && (
-                    <ProductList
-                      products={products}
-                      hasMore={hasMoreProducts}
-                      isLoadingMore={isLoadingMoreProducts}
-                      onLoadMore={handleLoadMoreProducts}
-                      onSelectProduct={handleSelectProductFromList}
-                      onNewProduct={handleNewProduct}
-                      onDeleteProduct={handleDeleteProduct}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
+              )}
+              </Suspense>
+            </ErrorBoundary>
           </motion.div>
         </AnimatePresence>
       </main>

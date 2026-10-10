@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import api from '../utils/api';
 import {
   Search,
   Filter,
@@ -18,7 +19,7 @@ import {
   MousePointerClick
 } from 'lucide-react';
 import { Article, Category, ArticleStatus, UserProfile, ArticleStats } from '../types';
-import { useEffect } from 'react';
+import { formatDateTime } from '../utils/dateFormatter';
 
 interface ArticleListProps {
   articles: Article[];
@@ -228,7 +229,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   >
                     {article.featuredImage ? (
                       <img
-                        src={article.featuredImage}
+                        src={article.featuredImage.startsWith('/api') ? `${api.defaults.baseURL ? api.defaults.baseURL.replace(/\/api$/, '') : ''}${article.featuredImage}` : article.featuredImage}
                         alt={article.featuredImageAlt || article.title}
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -291,13 +292,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                       <span className="flex items-center space-x-1 text-slate-400">
                         <Calendar className="w-3.5 h-3.5" />
                         <span>
-                          Diperbarui{' '}
-                          {new Date(article.updatedAt).toLocaleDateString('id-ID', {
-                            timeZone: 'Asia/Jakarta',
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })} WIB
+                          Diperbarui {formatDateTime(article.updatedAt, false)}
                         </span>
                       </span>
                     </div>
@@ -319,12 +314,37 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                     >
                       {article.seoScore}
                     </div>
-                    <div className="text-left">
+                    <div className="text-left hidden sm:block">
                       <p className="text-[10px] uppercase font-bold text-slate-400">Skor SEO</p>
                       <p className="text-xs font-semibold text-slate-800">
                         {article.seoScore >= 85
                           ? 'Optimal'
                           : article.seoScore >= 70
+                          ? 'Cukup'
+                          : 'Perlu Revisi'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* GEO Score Badge */}
+                  <div className="flex items-center space-x-2 px-3 py-2 rounded-xl bg-slate-50/80 border border-slate-100">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
+                        (article.geoScore || 0) >= 85
+                          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
+                          : (article.geoScore || 0) >= 70
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-amber-500 text-white'
+                      }`}
+                    >
+                      {article.geoScore || 0}
+                    </div>
+                    <div className="text-left hidden sm:block">
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Skor GEO</p>
+                      <p className="text-xs font-semibold text-slate-800">
+                        {(article.geoScore || 0) >= 85
+                          ? 'Optimal'
+                          : (article.geoScore || 0) >= 70
                           ? 'Cukup'
                           : 'Perlu Revisi'}
                       </p>

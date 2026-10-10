@@ -9,9 +9,9 @@ import {
   Sparkles,
   Save,
   Globe,
-  Feather, 
-  BookOpen, 
-  Loader2, 
+  Feather,
+  BookOpen,
+  Loader2,
   Lock,
   Linkedin,
   Twitter,
@@ -43,7 +43,15 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+
+  const roles = formData.role ? formData.role.split(',').map(r => r.trim().toLowerCase()) : [];
+  const isSuperAdmin = formData.role === 'super_admin' || roles.includes('super admin');
+  const isAdmin = isSuperAdmin || roles.includes('admin');
+  const isWriter = roles.includes('writer') || isAdmin;
+  const isSeller = roles.includes('seller') || isAdmin;
+
   // Password states
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
   const [isSubmittingProfile, setIsSubmittingProfile] = useState(false);
@@ -58,8 +66,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
     };
-  }, [previewUrl]);
+  }, [previewUrl, coverPreviewUrl]);
 
   const handleChange = (field: keyof UserProfile, value: any) => {
     setFormData((prev) => ({
@@ -73,6 +82,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
     setIsSubmittingProfile(true);
     try {
       let finalAvatarUrl = formData.avatarUrl;
+      let finalCoverUrl = formData.coverUrl;
 
       // 1. Jika ada file foto yang dipilih, unggah terlebih dahulu
       if (avatarFile) {
@@ -82,15 +92,29 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         }
         const data = new FormData();
         data.append('avatar', avatarFile);
-        
+
         // Axios butuh kita secara eksplisit mendeklarasikan multipart agar menimpa default application/json
         const res = await api.post('/users/me/avatar', data, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
-        
+
         // Biarkan response dari server (relative URL) yang dikirim kembali ke PUT /users/me
         // agar backend tidak kebingungan dan menganggap URL berubah lalu menghapusnya
         finalAvatarUrl = res.data.avatar_url;
+      }
+
+      if (coverFile) {
+        if (coverFile.size > 3 * 1024 * 1024) {
+          throw new Error('Ukuran file foto sampul maksimal 3MB.');
+        }
+        const data = new FormData();
+        data.append('cover', coverFile);
+
+        const res = await api.post('/users/me/cover', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        finalCoverUrl = res.data.cover_url;
       }
 
       // Pastikan kita hanya mengirimkan URL relatif ke backend
@@ -101,33 +125,41 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
           finalAvatarUrl = finalAvatarUrl.substring(origin.length);
         }
       }
+      if (finalCoverUrl && finalCoverUrl.startsWith('http')) {
+        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
+        const origin = baseUrl.replace('/api', '');
+        if (finalCoverUrl.startsWith(origin)) {
+          finalCoverUrl = finalCoverUrl.substring(origin.length);
+        }
+      }
 
-      // 2. Simpan profil teks ke Backend
       await api.put('/users/me', {
-        name: formData.name,
+        name: formData.name || null,
         avatar_url: finalAvatarUrl,
-        bio: formData.bio,
-        portfolioUrl: formData.portfolioUrl,
+        cover_url: finalCoverUrl,
+        bio: formData.bio || null,
+        portfolioUrl: formData.portfolioUrl || null,
         targetMinWords: formData.targetMinWords,
         targetKeywordDensity: formData.targetKeywordDensity,
-        preferredTone: formData.preferredTone,
-        mainLanguage: formData.mainLanguage,
+        preferredTone: formData.preferredTone || null,
+        mainLanguage: formData.mainLanguage || null,
         monthlyArticleGoal: formData.monthlyArticleGoal,
         monthlyWordGoal: formData.monthlyWordGoal,
-        primaryNiche: formData.primaryNiche,
-        socialLinkedin: formData.socialLinkedin,
-        socialTwitter: formData.socialTwitter,
-        socialInstagram: formData.socialInstagram,
-        socialFacebook: formData.socialFacebook,
-        socialTiktok: formData.socialTiktok
+        primaryNiche: formData.primaryNiche || null,
+        socialLinkedin: formData.socialLinkedin || null,
+        socialTwitter: formData.socialTwitter || null,
+        socialInstagram: formData.socialInstagram || null,
+        socialFacebook: formData.socialFacebook || null,
+        socialTiktok: formData.socialTiktok || null
       });
-      
+
       // 3. Simpan keseluruhan form ke Local Storage (untuk sinkronisasi state UI)
-      const updatedProfile = { ...formData, avatarUrl: finalAvatarUrl };
+      const updatedProfile = { ...formData, avatarUrl: finalAvatarUrl, coverUrl: finalCoverUrl };
       onUpdateProfile(updatedProfile);
       setFormData(updatedProfile);
       setAvatarFile(null); // Reset setelah sukses
-      
+      setCoverFile(null);
+
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 3000);
     } catch (err) {
@@ -182,7 +214,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <h2 className="text-lg font-bold text-slate-800">{formData.name}</h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-100">
-                SEO Verified Worker
+                {isAdmin ? 'System Administrator' : (isSeller ? 'Verified Seller' : 'SEO Verified Worker')}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">{formData.role}</p>
@@ -217,20 +249,20 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <label className="font-semibold text-slate-700">Nama Lengkap Penulis</label>
               <input
                 type="text"
-                value={formData.name}
+                value={formData.name || ''}
                 onChange={(e) => handleChange('name', e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Peran / Gelar Profesi</label>
+              <label className="font-semibold text-slate-700">Peran / Gelar Profesi (E-E-A-T)</label>
               <input
                 type="text"
-                value={formData.role}
+                value={isAdmin ? 'SEO Writer & Verified Seller' : (isSeller ? 'Verified Seller & SEO Writer' : (formData.role || 'SEO Verified Worker'))}
                 disabled
-                title="Hubungi Super Admin untuk mengubah peran Anda."
-                className="w-full px-3 py-2 bg-slate-100 border border-slate-200/80 rounded-xl text-slate-500 cursor-not-allowed"
+                title="Gelar profesi ditentukan secara otomatis dari sistem."
+                className="w-full px-3 py-2 bg-slate-100 border border-slate-200/80 rounded-xl text-slate-500 cursor-not-allowed font-medium"
               />
             </div>
 
@@ -238,7 +270,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <label className="font-semibold text-slate-700">Email Kerja</label>
               <input
                 type="email"
-                value={formData.email}
+                value={formData.email || ''}
                 disabled
                 title="Email tidak dapat diubah."
                 className="w-full px-3 py-2 bg-slate-100 border border-slate-200/80 rounded-xl text-slate-500 cursor-not-allowed"
@@ -294,7 +326,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               </label>
               <textarea
                 rows={3}
-                value={formData.bio}
+                value={formData.bio || ''}
                 onChange={(e) => handleChange('bio', e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 leading-relaxed"
               />
@@ -305,7 +337,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <input
                 type="url"
                 placeholder="https://"
-                value={formData.portfolioUrl}
+                value={formData.portfolioUrl || ''}
                 onChange={(e) => handleChange('portfolioUrl', e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
               />
@@ -316,7 +348,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <input
                 type="text"
                 placeholder="Contoh: Teknologi & SaaS"
-                value={formData.primaryNiche}
+                value={formData.primaryNiche || ''}
                 onChange={(e) => handleChange('primaryNiche', e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 font-medium"
               />
@@ -439,101 +471,167 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
           </div>
         </div>
 
+        {isSeller && (
+          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
+            <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+              <Sparkles className="w-4 h-4 text-teal-600" />
+              <h3 className="text-sm font-bold text-slate-800">Tampilan Toko (Seller Storefront)</h3>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 text-xs">
+              <div className="space-y-1.5 flex-1">
+                <label className="font-semibold text-slate-700">Foto Sampul Toko (Max 3MB)</label>
+                <div className="flex flex-col sm:flex-row items-start gap-3">
+                  <div className="w-full flex-1">
+                    <input
+                      type="file"
+                      accept="image/png, image/jpeg, image/webp"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 3 * 1024 * 1024) {
+                            warning('Ukuran file foto sampul tidak boleh lebih dari 3MB');
+                            e.target.value = '';
+                            return;
+                          }
+                          if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+                          setCoverFile(file);
+                          setCoverPreviewUrl(URL.createObjectURL(file));
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 transition-all cursor-pointer"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">Gunakan gambar landscape (rekomendasi 1200x400) agar tampilan toko Anda menarik.</p>
+                  </div>
+                  {(coverPreviewUrl || formData.coverUrl) && (
+                    <div className="flex flex-col items-center gap-2">
+                      <img
+                        src={coverPreviewUrl || (formData.coverUrl ? (formData.coverUrl.startsWith('http') ? formData.coverUrl : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${formData.coverUrl}`) : '')}
+                        alt="Preview Sampul"
+                        className="w-48 h-16 object-cover rounded-xl border border-slate-200 shadow-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const confirmed = await showConfirm('Hapus Foto Sampul', 'Foto sampul akan dihapus dari form. Jangan lupa klik "Simpan Profil" untuk memanenkannya!', 'Hapus', 'Batal');
+                          if (confirmed) {
+                            setCoverFile(null);
+                            if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+                            setCoverPreviewUrl(null);
+                            setFormData({ ...formData, coverUrl: '' });
+                          }
+                        }}
+                        className="text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded-lg border border-transparent hover:border-red-100 transition-colors"
+                      >
+                        Hapus Foto
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Section 2: Preferensi Standar SEO */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
-          <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-            <Feather className="w-4 h-4 text-teal-600" />
-            <h3 className="text-sm font-bold text-slate-800">Preferensi Standar Penulisan SEO</h3>
+        {isWriter && (
+          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
+            <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+              <Feather className="w-4 h-4 text-teal-600" />
+              <h3 className="text-sm font-bold text-slate-800">Preferensi Standar Penulisan SEO</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Target Minimal Kata per Artikel</label>
+                <input
+                  type="number"
+                  min="500"
+                  step="100"
+                  value={formData.targetMinWords || ''}
+                  onChange={(e) => handleChange('targetMinWords', Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
+                />
+                <p className="text-[11px] text-slate-400">Digunakan sebagai patokan audit panjang artikel.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Target Densitas Kata Kunci (%)</label>
+                <input
+                  type="number"
+                  min="0.5"
+                  max="3"
+                  step="0.1"
+                  value={formData.targetKeywordDensity || ''}
+                  onChange={(e) => handleChange('targetKeywordDensity', Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
+                />
+                <p className="text-[11px] text-slate-400">Rekomendasi aman: 1.0% - 2.0%.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Tone of Voice Default</label>
+                <input
+                  type="text"
+                  value={formData.preferredTone || ''}
+                  onChange={(e) => handleChange('preferredTone', e.target.value)}
+                  placeholder="contoh: Informatif, Otoritatif, & Santai"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Bahasa Utama</label>
+                <select
+                  value={formData.mainLanguage || 'Bahasa Indonesia (ID) & English (US)'}
+                  onChange={(e) => handleChange('mainLanguage', e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 font-medium text-slate-800"
+                >
+                  <option value="Bahasa Indonesia (ID) & English (US)">
+                    Bahasa Indonesia (ID) & English (US)
+                  </option>
+                  <option value="Bahasa Indonesia (ID)">Bahasa Indonesia (ID) Murni</option>
+                  <option value="English (US)">English (US)</option>
+                </select>
+              </div>
+            </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Target Minimal Kata per Artikel</label>
-              <input
-                type="number"
-                min="500"
-                step="100"
-                value={formData.targetMinWords}
-                onChange={(e) => handleChange('targetMinWords', Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
-              />
-              <p className="text-[11px] text-slate-400">Digunakan sebagai patokan audit panjang artikel.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Target Densitas Kata Kunci (%)</label>
-              <input
-                type="number"
-                min="0.5"
-                max="3"
-                step="0.1"
-                value={formData.targetKeywordDensity}
-                onChange={(e) => handleChange('targetKeywordDensity', Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
-              />
-              <p className="text-[11px] text-slate-400">Rekomendasi aman: 1.0% - 2.0%.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Tone of Voice Default</label>
-              <input
-                type="text"
-                value={formData.preferredTone}
-                onChange={(e) => handleChange('preferredTone', e.target.value)}
-                placeholder="contoh: Informatif, Otoritatif, & Santai"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Bahasa Utama</label>
-              <select
-                value={formData.mainLanguage}
-                onChange={(e) => handleChange('mainLanguage', e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 font-medium text-slate-800"
-              >
-                <option value="Bahasa Indonesia (ID) & English (US)">
-                  Bahasa Indonesia (ID) & English (US)
-                </option>
-                <option value="Bahasa Indonesia (ID)">Bahasa Indonesia (ID) Murni</option>
-                <option value="English (US)">English (US)</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Section 3: Target Bulanan Worker */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
-          <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-            <Target className="w-4 h-4 text-teal-600" />
-            <h3 className="text-sm font-bold text-slate-800">Target Bulanan SEO Worker</h3>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Target Jumlah Artikel per Bulan</label>
-              <input
-                type="number"
-                min="1"
-                value={formData.monthlyArticleGoal}
-                onChange={(e) => handleChange('monthlyArticleGoal', Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
-              />
+        {isWriter && (
+          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
+            <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+              <Target className="w-4 h-4 text-teal-600" />
+              <h3 className="text-sm font-bold text-slate-800">Target Bulanan SEO Worker</h3>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-700">Target Total Kata per Bulan</label>
-              <input
-                type="number"
-                min="1000"
-                step="1000"
-                value={formData.monthlyWordGoal}
-                onChange={(e) => handleChange('monthlyWordGoal', Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Target Jumlah Artikel per Bulan</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={formData.monthlyArticleGoal || ''}
+                  onChange={(e) => handleChange('monthlyArticleGoal', Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Target Total Kata per Bulan</label>
+                <input
+                  type="number"
+                  min="1000"
+                  step="1000"
+                  value={formData.monthlyWordGoal || ''}
+                  onChange={(e) => handleChange('monthlyWordGoal', Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white font-medium"
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Submit Button */}
         <div className="flex justify-end pt-2">
@@ -550,7 +648,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
 
       {/* Section 4: Ganti Password (Terpisah dari Profile Form) */}
       {/* FIX Bug #9: Sembunyikan untuk super_admin karena backend menolak perubahan password via UI */}
-      {profile.role !== 'super_admin' && (
+      {profile.role !== 'super_admin' && !roles.includes('super admin') && (
         <form onSubmit={handlePasswordSubmit} className="bg-white rounded-2xl border border-red-100 p-6 shadow-xs space-y-4">
           <div className="flex items-center space-x-2 border-b border-red-50 pb-3">
             <Lock className="w-4 h-4 text-red-500" />
@@ -564,7 +662,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                 required
                 type="password"
                 value={passwordData.old_password}
-                onChange={(e) => setPasswordData(prev => ({...prev, old_password: e.target.value}))}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, old_password: e.target.value }))}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
               />
             </div>
@@ -576,7 +674,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                 type="password"
                 minLength={6}
                 value={passwordData.new_password}
-                onChange={(e) => setPasswordData(prev => ({...prev, new_password: e.target.value}))}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, new_password: e.target.value }))}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-red-500 focus:bg-white font-medium"
               />
               <p className="text-[11px] text-slate-400">Minimal 6 karakter.</p>

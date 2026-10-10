@@ -4,6 +4,7 @@ CREATE TABLE users (
     email TEXT UNIQUE NOT NULL,
     name TEXT,
     avatar_url TEXT,
+    cover_url TEXT,
     password_hash TEXT NOT NULL, 
     is_active INTEGER DEFAULT 1,
     bio TEXT,
@@ -46,6 +47,13 @@ CREATE TABLE user_roles (
     role_id TEXT REFERENCES roles(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, role_id)
 );
+
+-- (SEED DATA) PERMISSIONS YANG HARUS ADA DI DATABASE:
+-- - edit_any_post
+-- - create_product
+-- - edit_product
+-- - delete_product
+-- - edit_any_product
 
 -- TABEL MANAJEMEN SESI (SECURITY PATCH)
 CREATE TABLE refresh_tokens (
@@ -92,6 +100,9 @@ CREATE TABLE posts (
     focus_keyword TEXT,
     secondary_keywords TEXT,
     seo_score INTEGER,
+    geo_score INTEGER,
+    geo_original_angle INTEGER DEFAULT 0,
+    geo_comprehensive INTEGER DEFAULT 0,
     word_count INTEGER,
     reading_time_minutes INTEGER,
     view_count INTEGER DEFAULT 0,

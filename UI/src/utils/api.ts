@@ -56,7 +56,7 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // Hindari infinite loop jika endpoint refresh gagal
-    if (originalRequest.url === '/auth/refresh') {
+    if (originalRequest.url && originalRequest.url.includes('/auth/refresh')) {
       return Promise.reject(error);
     }
 

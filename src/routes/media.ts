@@ -26,6 +26,23 @@ media.get('/avatars/:r2_key', async (c) => {
   return new Response(object.body, { headers })
 })
 
+media.get('/covers/:r2_key', async (c) => {
+  const key = c.req.param('r2_key')
+  const safeKey = key.replace(/[^a-zA-Z0-9.\-_]/g, '')
+  const object = await c.env.R2.get(`covers/${safeKey}`)
+  if (!object) {
+    throw new HTTPException(404, { message: 'Foto sampul tidak ditemukan.' })
+  }
+
+  const headers = new Headers()
+  object.writeHttpMetadata(headers)
+  headers.set('etag', object.httpEtag)
+  headers.set('Cache-Control', 'public, max-age=31536000')
+  headers.set('X-Content-Type-Options', 'nosniff')
+
+  return new Response(object.body, { headers })
+})
+
 media.get('/:r2_key', async (c) => {
   const key = c.req.param('r2_key')
   // Sanitasi path traversal
@@ -47,7 +64,7 @@ media.get('/:r2_key', async (c) => {
 
 // --- PROTECTED ROUTES ---
 
-media.post('/', authMiddleware, requirePermission('upload_media'), rateLimit(5, 60, 'upload_media'), async (c) => {
+media.post('/', authMiddleware, requirePermission('upload_media'), rateLimit(30, 60, 'upload_media'), async (c) => {
   const user = c.get('user')
   const body = await c.req.parseBody()
   const file = body['file']
@@ -134,8 +151,8 @@ media.delete('/:id', authMiddleware, requirePermission('delete_media'), async (c
   }
 
   const user = c.get('user')
-  // Hanya pemilik atau super_admin yang bisa menghapus
-  if (user.role !== 'super_admin' && record.uploaded_by !== user.id) {
+  // Hanya pemilik atau admin yang memiliki permission delete_any_media yang bisa menghapus
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('delete_any_media') && record.uploaded_by !== user.id) {
     throw new HTTPException(403, { message: 'Anda tidak berhak menghapus file ini.' })
   }
 
@@ -149,7 +166,9 @@ media.delete('/:id', authMiddleware, requirePermission('delete_media'), async (c
     c.env.DB.prepare('UPDATE products SET detail_image_2_key = NULL WHERE detail_image_2_key = ?').bind(record.r2_key),
     c.env.DB.prepare('UPDATE products SET detail_image_3_key = NULL WHERE detail_image_3_key = ?').bind(record.r2_key),
     c.env.DB.prepare('UPDATE products SET file_r2_key = NULL WHERE file_r2_key = ?').bind(record.r2_key),
-    c.env.DB.prepare('UPDATE posts SET cover_image_key = NULL WHERE cover_image_key = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE posts SET featured_image = NULL WHERE featured_image = ?').bind(record.r2_key),
+    c.env.DB.prepare('UPDATE users SET avatar_url = NULL WHERE avatar_url = ?').bind(`/api/media/${record.r2_key}`),
+    c.env.DB.prepare('UPDATE users SET cover_url = NULL WHERE cover_url = ?').bind(`/api/media/${record.r2_key}`),
     c.env.DB.prepare('DELETE FROM media WHERE id = ?').bind(mediaId)
   ])
 

@@ -17,6 +17,11 @@ SUPER_ADMIN_PASSWORD_HASH=$2a$10$contoh.hash.bcrypt.ganti.dengan.yang.asli
 # URL Frontend untuk keperluan SEO (Sitemap & Robots.txt)
 FRONTEND_URL=http://localhost:3000
 
+# URL Hub utama (untuk sitemap/robots redirect ke domain publik)
+# Jika di-set, akan digunakan sebagai prioritas utama daripada FRONTEND_URL untuk SEO routes.
+# Production: https://asisten-guru.id
+HUB_URL=https://asisten-guru.id
+
 # Daftar origin yang diizinkan untuk CORS (pisahkan dengan koma, tanpa spasi)
 # Production: https://asisten-guru.id,https://www.asisten-guru.id
 # Local dev: http://localhost:3000
