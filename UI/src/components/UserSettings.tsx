@@ -19,7 +19,7 @@ export const UserSettings: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserAdmin | null>(null);
 
   // Form states
-  const [formData, setFormData] = useState({ name: '', email: '' });
+  const [formData, setFormData] = useState<{name: string; email: string; role_names: string[]}>({ name: '', email: '', role_names: ['Writer'] });
   const [resetPassword, setResetPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,11 +51,15 @@ export const UserSettings: React.FC = () => {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.role_names || formData.role_names.length === 0) {
+      showError("Pilih minimal satu role.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       await api.post('/users', formData);
       setIsAddModalOpen(false);
-      setFormData({ name: '', email: '' });
+      setFormData({ name: '', email: '', role_names: ['Writer'] });
       fetchData(false); // Refresh list in background
     } catch (err) {
       showError(handleApiError(err));
@@ -109,16 +113,17 @@ export const UserSettings: React.FC = () => {
     }
   };
 
-  const handleChangeRole = async (user: UserAdmin, roleId: string) => {
+  const handleChangeRoles = async (user: UserAdmin, roleIds: string[], newRoleString: string) => {
+    if (roleIds.length === 0) {
+      showError("User harus memiliki minimal satu role.");
+      return;
+    }
     // Optimistic Update
     const previousRole = user.role;
-    const newRoleObj = roles.find(r => r.id === roleId);
-    if (newRoleObj) {
-      setUsers(users.map(u => u.id === user.id ? { ...u, role: newRoleObj.name } : u));
-    }
+    setUsers(users.map(u => u.id === user.id ? { ...u, role: newRoleString } : u));
     
     try {
-      await api.put(`/users/${user.id}/role`, { role_id: roleId });
+      await api.put(`/users/${user.id}/role`, { role_ids: roleIds });
       // Removed fetchData(false) here to prevent D1 read replica stale data 
       // from overwriting our optimistic update instantly.
     } catch (err) {
@@ -191,17 +196,36 @@ export const UserSettings: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <select
-                      className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
-                      value={roles.find(r => r.name === user.role)?.id || ''}
-                      onChange={(e) => handleChangeRole(user, e.target.value)}
-                      disabled={user.id === 'super_admin'}
-                    >
-                      <option value="" disabled>Pilih Role...</option>
-                      {roles.map(role => (
-                        <option key={role.id} value={role.id}>{role.name}</option>
-                      ))}
-                    </select>
+                    {user.id === 'super_admin' ? (
+                      <span className="text-sm font-semibold text-slate-700">Super Admin</span>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {roles.map(role => {
+                          const currentRolesList = user.role ? user.role.split(',').map(r => r.trim()) : [];
+                          const isSelected = currentRolesList.includes(role.name);
+                          return (
+                            <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  let newRoles;
+                                  if (e.target.checked) {
+                                    newRoles = [...currentRolesList, role.name];
+                                  } else {
+                                    newRoles = currentRolesList.filter(r => r !== role.name);
+                                  }
+                                  const newRoleIds = roles.filter(r => newRoles.includes(r.name)).map(r => r.id);
+                                  handleChangeRoles(user, newRoleIds, newRoles.join(', '));
+                                }}
+                              />
+                              <span className="text-sm text-slate-700">{role.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -285,6 +309,31 @@ export const UserSettings: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-2">
                   Penulis akan menerima email untuk membuat password mereka sendiri.
                 </p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Role (Bisa lebih dari satu)</label>
+                <div className="flex flex-col gap-2">
+                  {roles.map(role => (
+                    <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox"
+                        checked={formData.role_names?.includes(role.name)}
+                        onChange={(e) => {
+                          const currentRoles = formData.role_names || [];
+                          let newRoles;
+                          if (e.target.checked) {
+                            newRoles = [...currentRoles, role.name];
+                          } else {
+                            newRoles = currentRoles.filter(r => r !== role.name);
+                          }
+                          setFormData({ ...formData, role_names: newRoles });
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                      />
+                      <span className="text-sm text-slate-700">{role.name}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="flex items-center justify-end gap-3 pt-4">
                 <button

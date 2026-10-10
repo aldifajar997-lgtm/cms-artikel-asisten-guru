@@ -8,9 +8,11 @@ import {
   Calendar,
   ShoppingBag,
   DollarSign,
-  Eye
+  Eye,
+  Archive
 } from 'lucide-react';
 import { Product, ProductStatus } from '../types';
+import { formatDateTime } from '../utils/dateFormatter';
 
 interface ProductListProps {
   products: Product[];
@@ -20,6 +22,8 @@ interface ProductListProps {
   onSelectProduct: (product: Product) => void;
   onNewProduct: () => void;
   onDeleteProduct: (id: string) => void;
+  onArchiveProduct: (id: string) => void;
+  userRole: string;
 }
 
 export const ProductList: React.FC<ProductListProps> = ({
@@ -30,6 +34,8 @@ export const ProductList: React.FC<ProductListProps> = ({
   onSelectProduct,
   onNewProduct,
   onDeleteProduct,
+  onArchiveProduct,
+  userRole,
 }) => {
   const getStatusBadge = (status: ProductStatus) => {
     switch (status) {
@@ -167,13 +173,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                         <span className="flex items-center space-x-1 text-slate-500">
                           <Calendar className="w-3.5 h-3.5" />
                           <span>
-                            Diperbarui{' '}
-                            {new Date(product.created_at).toLocaleDateString('id-ID', {
-                              timeZone: 'Asia/Jakarta',
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                            })}
+                            Diperbarui {formatDateTime(product.created_at, false)}
                           </span>
                         </span>
                         
@@ -220,13 +220,28 @@ export const ProductList: React.FC<ProductListProps> = ({
                       >
                         <PenSquare className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => onDeleteProduct(product.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                        title="Hapus produk"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      
+                      {/* Arsip: Muncul jika produk bukan draf dan belum diarsipkan */}
+                      {product.status !== 'archived' && product.status !== 'draft' && (
+                        <button
+                          onClick={() => onArchiveProduct(product.id)}
+                          className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors cursor-pointer"
+                          title="Arsipkan produk"
+                        >
+                          <Archive className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {/* Hapus Permanen: Muncul untuk Super Admin ATAU jika seller menghapus produk draf */}
+                      {(userRole === 'super_admin' || product.status === 'draft') && (
+                        <button
+                          onClick={() => onDeleteProduct(product.id)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Hapus permanen produk"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

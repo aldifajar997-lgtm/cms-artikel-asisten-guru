@@ -14,6 +14,9 @@ import dashboardRoutes from './routes/dashboard'
 import seoRoutes from './routes/seo'
 import settingsRoutes from './routes/settings'
 import productsRoutes from './routes/products'
+import trendsRoutes from './routes/trends'
+import earningsRoutes from './routes/earnings'
+
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.use('*', secureHeaders({
@@ -28,12 +31,19 @@ app.use('*', secureHeaders({
 
 // Middleware Global — CORS dari environment variable (fix H1: hapus hardcoded localhost)
 app.use('*', async (c, next) => {
-  const allowedOrigins = (c.env.ALLOWED_ORIGINS || 'https://asisten-guru.id,https://www.asisten-guru.id')
-    .split(',').map((s: string) => s.trim()).filter(Boolean)
+  const allowedOrigins = (c.env.ALLOWED_ORIGINS || 'https://asisten-guru.id')
+    .split(',').map((s: string) => s.trim().replace(/\/$/, '')).filter(Boolean) // Hapus trailing slash jika ada
 
   const corsHandler = cors({
-    origin: allowedOrigins,
-    credentials: true
+    origin: (origin) => {
+      if (!origin) return allowedOrigins[0];
+      if (allowedOrigins.includes(origin)) return origin;
+      if (origin.endsWith('asisten-guru.id') || origin.endsWith('asisten-guru.my.id') || origin.includes('localhost')) return origin;
+      return allowedOrigins[0];
+    },
+    credentials: true,
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   })
 
   return corsHandler(c, next)
@@ -60,6 +70,8 @@ app.route('/api/tags', tagsRoutes)
 app.route('/api/settings', settingsRoutes)
 app.route('/api/products', productsRoutes)
 app.route('/api/dashboard', dashboardRoutes)
+app.route('/api/trends', trendsRoutes)
+app.route('/api/earnings', earningsRoutes)
 app.route('/', seoRoutes)
 export default {
   fetch: app.fetch,
@@ -69,11 +81,14 @@ export default {
       
       try {
         // 1. Kumpulkan semua r2 key yang AKTIF digunakan di database D1
-        const res = await env.DB.prepare('SELECT file_r2_key, cover_image_key FROM products').all()
+        const res = await env.DB.prepare('SELECT file_r2_key, cover_image_key, detail_image_1_key, detail_image_2_key, detail_image_3_key FROM products').all()
         const activeKeys = new Set<string>()
         res.results.forEach((row: any) => {
           if (row.file_r2_key) activeKeys.add(row.file_r2_key)
           if (row.cover_image_key) activeKeys.add(row.cover_image_key)
+          if (row.detail_image_1_key) activeKeys.add(row.detail_image_1_key)
+          if (row.detail_image_2_key) activeKeys.add(row.detail_image_2_key)
+          if (row.detail_image_3_key) activeKeys.add(row.detail_image_3_key)
         })
 
         // 2. Iterasi seluruh object di R2 yang berawalan 'products/'
@@ -111,7 +126,7 @@ export default {
         });
         
         if (res.ok) {
-           const result = await res.json();
+           const result = (await res.json()) as any;
            console.log(`[S2S Queue] Status: OK, Processed: ${result.processed}, Success: ${result.success_count}`);
         } else {
            console.error(`[S2S Queue] Trigger failed with status: ${res.status}`);

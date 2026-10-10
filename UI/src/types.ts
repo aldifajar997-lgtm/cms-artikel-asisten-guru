@@ -13,6 +13,9 @@ export interface Article {
   metaDescription: string;
   status: ArticleStatus;
   seoScore: number;
+  geoScore: number;
+  geoOriginalAngle?: boolean;
+  geoComprehensive?: boolean;
   wordCount: number;
   readingTimeMinutes: number;
   viewCount: number;
@@ -23,6 +26,7 @@ export interface Article {
   featuredImageAlt?: string;
   featuredImageCaption?: string;
   tagIds?: string[];
+  sessionMediaKeys?: string[];
 }
 
 export interface Tag {
@@ -50,6 +54,7 @@ export interface UserProfile {
   role: string;
   email: string;
   avatarUrl: string;
+  coverUrl?: string;
   bio: string;
   primaryNiche: string;
   mainLanguage: string;
@@ -111,6 +116,7 @@ export interface ArticleStats {
   totalWords: number;
   totalViews: number;
   avgScore: number;
+  avgGeoScore: number;
   publishedCount: number;
   draftCount: number;
 }

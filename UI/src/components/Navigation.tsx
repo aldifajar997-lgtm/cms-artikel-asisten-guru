@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings, LayoutDashboard, ShoppingBag } from 'lucide-react';
+import { PenTool, FileText, Layers, User, Plus, Sparkles, Menu, X, Users, LogOut, BookOpen, Settings, LayoutDashboard, ShoppingBag, DollarSign } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'dashboard' | 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs' | 'list-produk' | 'buat-produk';
+export type ActiveTab = 'dashboard' | 'buat-artikel' | 'list-artikel' | 'pengaturan-kategori' | 'pengaturan-profile' | 'pengaturan-user' | 'glosarium' | 'pengaturan-situs' | 'list-produk' | 'buat-produk' | 'pengaturan-pendapatan';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -23,26 +23,41 @@ export const Navigation: React.FC<NavigationProps> = ({
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const roles = profile.role ? profile.role.split(',').map(r => r.trim().toLowerCase()) : [];
+  const isSuperAdmin = roles.includes('super admin') || roles.includes('super_admin');
+  const isAdminOrEditor = isSuperAdmin || roles.includes('admin') || roles.includes('editor');
+  const isWriter = roles.includes('writer');
+  const isSeller = roles.includes('seller');
+  
+  const canSeeArticles = isAdminOrEditor || isWriter;
+  const canSeeProducts = isAdminOrEditor || isSeller;
+
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType; badge?: number }> = [
     {
       id: 'dashboard' as ActiveTab,
       label: 'Dashboard',
       icon: LayoutDashboard,
-    },
-    {
+    }
+  ];
+
+  if (canSeeArticles) {
+    navItems.push({
       id: 'list-artikel' as ActiveTab,
       label: 'List Artikel',
       icon: FileText,
       badge: articleCount,
-    },
-    {
+    });
+  }
+
+  if (canSeeProducts) {
+    navItems.push({
       id: 'list-produk' as ActiveTab,
       label: 'Produk Digital',
       icon: ShoppingBag,
-    }
-  ];
+    });
+  }
 
-  if (profile.role === 'super_admin') {
+  if (isSuperAdmin) {
     navItems.push({
       id: 'pengaturan-kategori' as ActiveTab,
       label: 'Pengaturan Kategori',
@@ -53,10 +68,15 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Pengaturan User',
       icon: Users,
     });
+    navItems.push({
+      id: 'pengaturan-pendapatan' as ActiveTab,
+      label: 'Keuangan & Fee',
+      icon: DollarSign,
+    });
   }
 
   // Pengaturan Situs (logo, judul, deskripsi) — untuk super_admin dan Admin
-  if (profile.role === 'super_admin' || profile.role === 'Admin') {
+  if (isSuperAdmin || roles.includes('admin')) {
     navItems.push({
       id: 'pengaturan-situs' as ActiveTab,
       label: 'Pengaturan Situs',
@@ -78,6 +98,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           <span className="font-bold text-base tracking-tight text-teal-900">SEOAsisten</span>
         </div>
         <div className="flex items-center gap-2">
+          {canSeeArticles && (
           <button
             onClick={onNewArticle}
             className="p-1.5 bg-teal-600 text-white rounded-lg text-xs font-semibold"
@@ -85,6 +106,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           >
             <Plus className="w-4 h-4" />
           </button>
+          )}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
@@ -131,6 +153,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         </div>
 
         {/* Quick Action Button */}
+        {canSeeArticles && (
         <div className="px-4 pt-4">
           <button
             id="btn-quick-new-article"
@@ -144,6 +167,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span>Tulis Artikel Baru</span>
           </button>
         </div>
+        )}
 
         {/* Navigation Menu */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">

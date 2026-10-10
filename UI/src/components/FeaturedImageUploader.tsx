@@ -11,6 +11,7 @@ interface FeaturedImageUploaderProps {
   onAltTextChange: (alt: string) => void;
   onCaptionChange: (caption: string) => void;
   onRemoveImage: () => void;
+  onImageUploaded?: (key: string) => void;
 }
 
 export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
@@ -22,6 +23,7 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
   onAltTextChange,
   onCaptionChange,
   onRemoveImage,
+  onImageUploaded,
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,11 +47,18 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
 
       if (response.data?.result?.[0]?.url) {
         let uploadedUrl = response.data.result[0].url;
-        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
-        const origin = baseUrl.replace(/\/api\/?$/, '');
-        uploadedUrl = `${origin}${uploadedUrl}`;
+        
+        const baseURL = api.defaults.baseURL ? api.defaults.baseURL.replace(/\/api$/, '') : '';
+        if (uploadedUrl.startsWith('/api')) {
+          uploadedUrl = `${baseURL}${uploadedUrl}`;
+        }
 
         onImageChange(uploadedUrl);
+        if (onImageUploaded) {
+          const match = uploadedUrl.match(/\/api\/media\/([^\/"']+)/);
+          if (match) onImageUploaded(match[1]);
+        }
+
         // Automatically suggest alt text based on keyword if alt text is empty
         if (!altText && focusKeyword) {
           onAltTextChange(focusKeyword);
@@ -90,7 +99,7 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
       ) : (
         <div className="space-y-4">
           <div className="relative w-full aspect-video sm:h-80 rounded-2xl overflow-hidden bg-slate-100 group border border-slate-200">
-            <img src={imageUrl} alt={altText} className="w-full h-full object-cover" />
+            <img src={imageUrl.startsWith('/api') ? `${api.defaults.baseURL ? api.defaults.baseURL.replace(/\/api$/, '') : ''}${imageUrl}` : imageUrl} alt={altText} className="w-full h-full object-cover" />
             <div className="absolute top-4 right-4 z-10">
               <button
                 onClick={onRemoveImage}
