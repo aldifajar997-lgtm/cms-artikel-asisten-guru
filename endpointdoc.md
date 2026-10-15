@@ -111,8 +111,8 @@ Semua pesan error ke klien menggunakan bahasa yang ramah pengguna; detail teknis
 | `/internal/:id/price` | `GET` | 🔐 S2S (`type: price_check`) | Harga real-time + `price_lock_token` (berlaku 90 menit). `product_id` di JWT wajib = `:id`. |
 | `/internal/:id/sale` | `POST` | 🔐 S2S (`type: sale_trigger`) | Catat penjualan ke ledger. Wajib: `hub_transaction_id`, `gross_amount` (harus = harga terkunci), `price_lock_token`, `paid_at` (≤7 hari lalu). Idempoten per `hub_transaction_id` (72 jam). |
 | `/internal/:id/download` | `POST` | 🔐 S2S (`type: download_request`) | Stream file produk dengan `Content-Disposition`. Rate limit 5000/menit. |
-| `/internal-reviews` | `POST` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Simpan/ubah ulasan `{productId, accountId, rating 1-5, comment ≤500}`; agregat rating produk diperbarui atomik. Verifikasi pembelian dilakukan di Hub. |
-| `/internal-reviews/my` | `GET` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Ulasan milik akun tertentu: `?productId=&accountId=`. |
+| `/internal-reviews` | `POST` | 🔐 S2S (JWT RS256 / Secret S2S) | Simpan/ubah ulasan `{productId, accountId, rating 1-5, comment ≤500}`; agregat rating produk diperbarui atomik. Verifikasi via JWT RS256 Hub, `S2S_INTERNAL_SECRET`, atau bearer key. |
+| `/internal-reviews/my` | `GET` | 🔐 S2S (JWT RS256 / Secret S2S) | Ulasan milik akun tertentu: `?productId=&accountId=`. Verifikasi via JWT RS256 Hub, `S2S_INTERNAL_SECRET`, atau bearer key. |
 
 ### Administratif (CMS)
 | Endpoint | Method | Proteksi | Keterangan |
@@ -170,6 +170,7 @@ Semua endpoint wajib login; data seller selalu difilter dengan `user.id` dari to
 | Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
 | `/api/dashboard/stats` | `GET` | 🛡️ `view_dashboard` | Total artikel, pengguna, media. Rate limit 20/menit. |
+| `/api/dashboard/analytics` | `GET` | 🛡️ `view_dashboard` | **Baru.** Analitik riil terpadu skema artikel, skema produk, tren bulanan kontinu (6 bulan), dan top konten. Rate limit 30/menit. |
 | `/api/trends/suggest` | `GET` | 🔴 Login | **Belum terdokumentasi sebelumnya.** Saran topik/keyword tren untuk penulis. |
 
 ---

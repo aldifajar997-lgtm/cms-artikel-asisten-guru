@@ -151,3 +151,156 @@ export interface Product {
   sales_count?: number;
   created_at: string;
 }
+
+export interface StatusDistributionItem {
+  name: string;
+  value: number;
+  color?: string;
+}
+
+export interface ArticleTrendItem {
+  period: string;
+  name: string;
+  count: number;
+  views: number;
+}
+
+export interface ProductTrendItem {
+  period: string;
+  name: string;
+  sales: number;
+  earnings: number;
+  gross?: number;
+}
+
+export interface TopArticleItem {
+  id: string;
+  title: string;
+  slug: string;
+  view_count: number;
+  word_count: number;
+  seo_score: number;
+  geo_score?: number;
+  status: string;
+  published_at?: string;
+}
+
+export interface TopProductItem {
+  id: string;
+  title: string;
+  slug: string;
+  price: number;
+  original_price?: number;
+  sales_count: number;
+  view_count: number;
+  status: string;
+  created_at?: string;
+}
+
+export interface ExecutiveMetrics {
+  total_gross_gmv: number;
+  total_platform_fee_collected: number;
+  total_pending_seller_payout: number;
+  active_authors_count: number;
+  active_sellers_count: number;
+  total_users_count: number;
+  total_media_count: number;
+  sync_queue_status: 'healthy' | 'degraded';
+}
+
+export interface EditorialReviewItem {
+  id: string;
+  title: string;
+  slug: string;
+  word_count: number;
+  seo_score: number;
+  geo_score?: number;
+  updated_at: string;
+  author_name?: string;
+  author_avatar_url?: string;
+}
+
+export interface AuthorLeaderboardItem {
+  author_id: string;
+  author_name: string;
+  avatar_url?: string;
+  published_count: number;
+  total_words: number;
+  avg_seo_score: number;
+}
+
+export interface EditorialDeskData {
+  pending_drafts_count: number;
+  pending_review_queue: EditorialReviewItem[];
+  author_leaderboard: AuthorLeaderboardItem[];
+}
+
+export interface CreatorGoalsData {
+  monthly_article_goal: number;
+  articles_published_this_month: number;
+  article_goal_percentage: number;
+  monthly_word_goal: number;
+  words_written_this_month: number;
+  word_goal_percentage: number;
+  target_min_words: number;
+}
+
+export interface SellerMetricsData {
+  conversion_rate: number;
+  pending_payout: number;
+  is_withdrawal_eligible: boolean;
+  total_sales: number;
+  total_views: number;
+}
+
+export interface RoleProfileData {
+  is_super_admin: boolean;
+  is_admin: boolean;
+  is_editor: boolean;
+  is_seller: boolean;
+  is_writer: boolean;
+  primary_role: 'super_admin' | 'admin' | 'editor' | 'seller' | 'writer';
+}
+
+export interface DashboardAnalytics {
+  role_profile?: RoleProfileData;
+  executive_metrics?: ExecutiveMetrics | null;
+  editorial_desk?: EditorialDeskData | null;
+  creator_goals?: CreatorGoalsData | null;
+  seller_metrics?: SellerMetricsData | null;
+  articles: {
+    total_articles: number;
+    published_count: number;
+    draft_count: number;
+    total_words: number;
+    avg_words: number;
+    avg_score: number;
+    avg_geo_score: number;
+    total_views: number;
+    status_distribution: StatusDistributionItem[];
+    trend: ArticleTrendItem[];
+    top_articles: TopArticleItem[];
+  };
+  products: {
+    total_products: number;
+    published_count: number;
+    draft_count: number;
+    archived_count: number;
+    total_views: number;
+    total_sales: number;
+    avg_price: number;
+    total_gross_revenue: number;
+    total_net_revenue: number;
+    pending_payout: number;
+    paid_out: number;
+    status_distribution: StatusDistributionItem[];
+    trend: ProductTrendItem[];
+    top_products: TopProductItem[];
+  };
+  overview: {
+    total_content: number;
+    total_views: number;
+    total_sales: number;
+    total_earnings: number;
+  };
+}

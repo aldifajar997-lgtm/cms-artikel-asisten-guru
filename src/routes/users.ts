@@ -23,8 +23,7 @@ const toAbsoluteMediaUrl = (origin: string, url: unknown): string | null => {
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // --- PUBLIC AUTHOR PROFILE ---
-// Endpoint ini diletakkan SEBELUM authMiddleware agar bisa diakses pembaca (publik) tanpa login
-users.get('/author/:id', rateLimit(500, 60, 'public_author'), async (c) => {
+users.get('/author/:id', async (c) => {
   const targetId = c.req.param('id')
   
   // Hanya menyeleksi field yang aman untuk publik, dan memastikan user aktif
@@ -46,7 +45,9 @@ users.get('/author/:id', rateLimit(500, 60, 'public_author'), async (c) => {
     cover_url: toAbsoluteMediaUrl(origin, author.cover_url)
   }
 
-  return c.json(mappedAuthor)
+  return c.json(mappedAuthor, 200, {
+    'Cache-Control': 'public, max-age=600, stale-while-revalidate=1200'
+  })
 })
 
 // Semua endpoint di bawah ini membutuhkan autentikasi
@@ -54,7 +55,7 @@ users.use('*', authMiddleware)
 
 // --- PROFIL SENDIRI ---
 
-users.get('/me', async (c) => {
+users.get('/me', rateLimit(500, 60, 'get_me'), async (c) => {
   const user = c.get('user')
   
   const dbUser = await c.env.DB.prepare(`
@@ -489,7 +490,7 @@ const resetPasswordSchema = z.object({
   new_password: z.string().min(6)
 })
 
-users.put('/:id/reset-password', zValidator('json', resetPasswordSchema), async (c) => {
+users.put('/:id/reset-password', rateLimit(30, 60, 'reset_password'), zValidator('json', resetPasswordSchema), async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Hanya super admin yang dapat mereset password.' })
 
@@ -517,7 +518,7 @@ users.put('/:id/reset-password', zValidator('json', resetPasswordSchema), async 
 
 // --- RBAC: Roles & Permissions ---
 
-users.get('/roles/list', async (c) => {
+users.get('/roles/list', rateLimit(500, 60, 'roles_list'), async (c) => {
   const user = c.get('user')
   if (user.role !== 'super_admin') throw new HTTPException(403, { message: 'Akses ditolak.' })
 

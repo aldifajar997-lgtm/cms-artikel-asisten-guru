@@ -38,7 +38,7 @@ seo.get('/', (c) => {
 })
 
 // --- SITEMAP INDEX (fix H2: pagination untuk >1000 konten) ---
-seo.get('/sitemap.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
+seo.get('/sitemap.xml', async (c) => {
   const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL))
 
   try {
@@ -87,7 +87,7 @@ seo.get('/sitemap.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
 })
 
 // --- SUB-SITEMAP: Posts (paginated) ---
-seo.get('/sitemap-posts-*', rateLimit(20, 60, 'sitemap'), async (c) => {
+seo.get('/sitemap-posts-*', async (c) => {
   const path = c.req.path
   // Ekstrak angka dari /sitemap-posts-1.xml
   const match = path.match(/sitemap-posts-(\d+)\.xml/)
@@ -135,7 +135,7 @@ seo.get('/sitemap-posts-*', rateLimit(20, 60, 'sitemap'), async (c) => {
 })
 
 // --- SUB-SITEMAP: Products (paginated) ---
-seo.get('/sitemap-products-*', rateLimit(20, 60, 'sitemap'), async (c) => {
+seo.get('/sitemap-products-*', async (c) => {
   const path = c.req.path
   const match = path.match(/sitemap-products-(\d+)\.xml/)
   if (!match) {
@@ -201,7 +201,7 @@ seo.get('/sitemap-products-*', rateLimit(20, 60, 'sitemap'), async (c) => {
 })
 
 // --- SUB-SITEMAP: Categories + Tags ---
-seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
+seo.get('/sitemap-taxonomy.xml', async (c) => {
   const frontendUrl = escapeXml(getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL))
 
   try {
@@ -261,7 +261,7 @@ seo.get('/sitemap-taxonomy.xml', rateLimit(20, 60, 'sitemap'), async (c) => {
   }
 })
 
-seo.get('/robots.txt', rateLimit(20, 60, 'robots'), (c) => {
+seo.get('/robots.txt', (c) => {
   const frontendUrl = getSafeFrontendUrl(c.env.HUB_URL || c.env.FRONTEND_URL)
 
   const content = `User-agent: *

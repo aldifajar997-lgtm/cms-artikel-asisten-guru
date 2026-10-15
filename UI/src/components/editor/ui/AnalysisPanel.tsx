@@ -1,15 +1,18 @@
 import React from 'react';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Link2 } from 'lucide-react';
 import { SerpPreview } from './SerpPreview';
 import { MetadataPanel } from './MetadataPanel';
 import { KeywordTrends } from './KeywordTrends';
 import { TaxonomyPanel } from './TaxonomyPanel';
+import { InternalLinkHelper } from './InternalLinkHelper';
 import { Category, Tag as TagType } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 
+export type SeoTab = 'checklist' | 'serp' | 'keywords' | 'geo' | 'links';
+
 interface AnalysisPanelProps {
-  activeSeoTab: 'checklist' | 'serp' | 'keywords' | 'geo';
-  setActiveSeoTab: (tab: 'checklist' | 'serp' | 'keywords' | 'geo') => void;
+  activeSeoTab: SeoTab;
+  setActiveSeoTab: (tab: SeoTab) => void;
   seoAnalysis: any;
   geoAnalysis: any;
   scoreBadge: { bg: string; label: string };
@@ -52,6 +55,9 @@ interface AnalysisPanelProps {
   secondaryKeywords: string[];
   setSecondaryKeywords: (keywords: string[]) => void;
   setHasUnsavedChanges: (val: boolean) => void;
+
+  // Internal Link Assistant
+  onInsertLink: (title: string, slug: string, customAnchor?: string) => void;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -61,17 +67,18 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   serpDevice, setSerpDevice, title, metaTitle, setMetaTitle, metaDescription, setMetaDescription,
   content, slug, setSlug, currentCategory, featuredImage, featuredImageAlt, generateSlug,
   categories, tags, categoryId, setCategoryId, tagIds, setTagIds, onTagsChange,
-  focusKeyword, isTrendLoading, trendStatus, lsiKeywords, secondaryKeywords, setSecondaryKeywords, setHasUnsavedChanges
+  focusKeyword, isTrendLoading, trendStatus, lsiKeywords, secondaryKeywords, setSecondaryKeywords, setHasUnsavedChanges,
+  onInsertLink
 }) => {
   const { error } = useToast();
 
   return (
     <div className="flex flex-col gap-6">
       {/* Tabs Selector */}
-      <div className="flex bg-slate-200/60 p-1 rounded-xl">
+      <div className="flex bg-slate-200/60 p-1 rounded-xl gap-0.5">
         <button
           onClick={() => setActiveSeoTab('checklist')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'checklist'
+          className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'checklist'
               ? 'bg-white text-teal-800 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
             }`}
@@ -80,7 +87,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </button>
         <button
           onClick={() => setActiveSeoTab('serp')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'serp'
+          className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'serp'
               ? 'bg-white text-teal-800 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
             }`}
@@ -89,7 +96,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </button>
         <button
           onClick={() => setActiveSeoTab('keywords')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'keywords'
+          className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'keywords'
               ? 'bg-white text-teal-800 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
             }`}
@@ -98,12 +105,22 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </button>
         <button
           onClick={() => setActiveSeoTab('geo')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'geo'
+          className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${activeSeoTab === 'geo'
               ? 'bg-white text-teal-800 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
             }`}
         >
           GEO
+        </button>
+        <button
+          onClick={() => setActiveSeoTab('links')}
+          className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1 ${activeSeoTab === 'links'
+              ? 'bg-white text-teal-800 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+            }`}
+        >
+          <Link2 className="w-3 h-3 text-teal-600" />
+          <span>Tautan</span>
         </button>
       </div>
 
@@ -303,6 +320,15 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {activeSeoTab === 'links' && (
+        <InternalLinkHelper
+          content={content}
+          currentSlug={slug}
+          categories={categories}
+          onInsertLink={onInsertLink}
+        />
       )}
     </div>
   );

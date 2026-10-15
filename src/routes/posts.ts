@@ -24,9 +24,27 @@ const posts = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+async function invalidatePostListAndCategoryCaches(kv: any) {
+  try {
+    const listPromises: Promise<any>[] = []
+    const postList = await kv.list({ prefix: 'cache:posts_list:' })
+    // Batasi penghapusan hingga 50 key pertama agar tidak melebihi kuota subrequest dan delete KV
+    for (const key of postList.keys.slice(0, 50)) {
+      listPromises.push(kv.delete(key.name))
+    }
+    const catList = await kv.list({ prefix: 'cache:categories_list:' })
+    for (const key of catList.keys.slice(0, 20)) {
+      listPromises.push(kv.delete(key.name))
+    }
+    await Promise.all(listPromises)
+  } catch (err) {
+    console.error('Failed to invalidate post list and category caches:', err)
+  }
+}
+
 // --- PUBLIC ROUTES ---
 
-posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
+posts.get('/', async (c) => {
   const { limit, offset } = getPagination(c, 10, 50)
   const categoryId = c.req.query('category_id')
   const searchQuery = c.req.query('q')
@@ -45,7 +63,9 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
 
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
-    return c.json(cachedData)
+    return c.json(cachedData, 200, {
+      'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+    })
   }
 
   // Hapus p.seo_score untuk mencegah kebocoran strategi SEO ke publik
@@ -115,19 +135,23 @@ posts.get('/', rateLimit(500, 60, 'public_posts'), async (c) => {
 
   const responseData = { data: formatted, limit, offset, next_cursor: nextCursor }
 
-  c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 60 }))
+  c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 180 }))
 
-  return c.json(responseData)
+  return c.json(responseData, 200, {
+    'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+  })
 })
 
-posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
+posts.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   const tz = c.req.query('timezone') || 'Asia/Jakarta'
 
   const cacheKey = `cache:post_slug:${slug}`
   const cachedData = await c.env.KV.get(cacheKey, 'json')
   if (cachedData) {
-    return c.json(cachedData)
+    return c.json(cachedData, 200, {
+      'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+    })
   }
 
   // Hapus focus_keyword, secondary_keywords, seo_score, word_count dari hasil query ke publik
@@ -165,7 +189,9 @@ posts.get('/:slug', rateLimit(500, 60, 'public_posts'), async (c) => {
 
   c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 3600 }))
 
-  return c.json(responseData)
+  return c.json(responseData, 200, {
+    'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+  })
 })
 
 posts.get('/preview/:identifier', rateLimit(100, 60, 'preview_posts'), async (c) => {
@@ -213,21 +239,29 @@ posts.get('/preview/:identifier', rateLimit(100, 60, 'preview_posts'), async (c)
     'SELECT t.id, t.slug, t.name FROM post_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.post_id = ?'
   ).bind(post.id).all()
 
-  return c.json({ ...formatted, tags: tags.results })
+  return c.json({ ...formatted, tags: tags.results }, 200, {
+    'Cache-Control': 'no-store'
+  })
 })
 
 posts.post('/:slug/view', rateLimit(1, 60, (c) => `post_view_${c.req.param('slug')}`), async (c) => {
   const slug = c.req.param('slug')
 
-  const result = await c.env.DB.prepare(
-    "UPDATE posts SET view_count = COALESCE(view_count, 0) + 1 WHERE slug = ? AND status = 'published'"
-  ).bind(slug).run()
+  // Eksekusi increment secara non-blocking di background worker (waitUntil)
+  // Dilindungi try-catch agar write-lock contention tidak melempar 500 error ke browser
+  c.executionCtx.waitUntil((async () => {
+    try {
+      await c.env.DB.prepare(
+        "UPDATE posts SET view_count = COALESCE(view_count, 0) + 1 WHERE slug = ? AND status = 'published'"
+      ).bind(slug).run()
+    } catch (err) {
+      console.error('Failed to increment view count for', slug, err)
+    }
+  })())
 
-  if (result.meta.changes === 0) {
-    throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
-  }
-
-  return c.json({ message: 'View count bertambah.' })
+  return c.json({ message: 'View count bertambah.' }, 200, {
+    'Cache-Control': 'no-store'
+  })
 })
 
 // --- PROTECTED ROUTES (Requires Auth) ---
@@ -306,12 +340,12 @@ posts.get('/admin/stats', requirePermission('view_dashboard'), async (c) => {
   let query = `
     SELECT 
       COUNT(*) as total_articles,
-      SUM(word_count) as total_words,
-      AVG(seo_score) as avg_score,
-      AVG(geo_score) as avg_geo_score,
-      SUM(view_count) as total_views,
-      SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published_count,
-      SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count
+      COALESCE(SUM(word_count), 0) as total_words,
+      COALESCE(ROUND(AVG(seo_score)), 0) as avg_score,
+      COALESCE(ROUND(AVG(geo_score)), 0) as avg_geo_score,
+      COALESCE(SUM(view_count), 0) as total_views,
+      COALESCE(SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END), 0) as published_count,
+      COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) as draft_count
     FROM posts
   `
   const params: any[] = []
@@ -474,6 +508,7 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
     const sessionKeys = body.session_media_keys || [];
     const orphanedKeys = sessionKeys.filter((k: string) => !usedKeys.includes(k));
     c.executionCtx.waitUntil(cleanupOrphanedMedia(c, orphanedKeys));
+    c.executionCtx.waitUntil(invalidatePostListAndCategoryCaches(c.env.KV));
 
     return c.json({ message: 'Artikel berhasil dibuat.', id })
   } catch (error: any) {
