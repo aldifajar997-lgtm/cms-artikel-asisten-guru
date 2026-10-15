@@ -12,6 +12,7 @@ export type Bindings = {
   TURNSTILE_SECRET?: string
   TURNSTILE_HOSTNAMES?: string
   HUB_PUBLIC_KEY?: string
+  S2S_INTERNAL_SECRET?: string
 }
 
 export interface JWTPayload {

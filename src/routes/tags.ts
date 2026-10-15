@@ -14,7 +14,7 @@ const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const tags = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-tags.get('/', rateLimit(500, 60, 'public_tags'), async (c) => {
+tags.get('/', async (c) => {
   const { limit, offset } = getPagination(c, 50, 100)
 
   const list = await c.env.DB.prepare(
@@ -24,10 +24,12 @@ tags.get('/', rateLimit(500, 60, 'public_tags'), async (c) => {
      ORDER BY name ASC 
      LIMIT ? OFFSET ?`
   ).bind(limit, offset).all()
-  return c.json({ data: list.results, limit, offset })
+  return c.json({ data: list.results, limit, offset }, 200, {
+    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600'
+  })
 })
 
-tags.get('/:slug', rateLimit(500, 60, 'public_tags'), async (c) => {
+tags.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   const tag = await c.env.DB.prepare(
     'SELECT id, slug, name, created_at FROM tags WHERE slug = ?'
@@ -37,7 +39,9 @@ tags.get('/:slug', rateLimit(500, 60, 'public_tags'), async (c) => {
     throw new HTTPException(404, { message: 'Tag tidak ditemukan.' })
   }
 
-  return c.json({ data: tag })
+  return c.json({ data: tag }, 200, {
+    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600'
+  })
 })
 
 const schema = z.object({

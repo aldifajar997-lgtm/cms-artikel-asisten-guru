@@ -14,9 +14,30 @@ const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const categories = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-categories.get('/', rateLimit(500, 60, 'public_categories'), async (c) => {
+async function invalidateCategoriesCache(kv: KVNamespace) {
+  try {
+    const list = await kv.list({ prefix: 'cache:categories_list:' })
+    // Batasi hingga 50 key agar tidak membebani kuota delete & sub-request limit
+    for (const key of list.keys.slice(0, 50)) {
+      await kv.delete(key.name)
+    }
+  } catch (err) {
+    console.error('Failed to invalidate categories cache:', err)
+  }
+}
+
+categories.get('/', async (c) => {
   const { limit, offset } = getPagination(c, 10, 100)
   const typeFilter = c.req.query('type')
+  const safeType = (typeFilter && ['article', 'product'].includes(typeFilter)) ? typeFilter : 'all'
+  const cacheKey = `cache:categories_list:${limit}:${offset}:${safeType}`
+
+  const cachedData = await c.env.KV.get(cacheKey, 'json')
+  if (cachedData) {
+    return c.json(cachedData, 200, {
+      'Cache-Control': 'public, max-age=300, stale-while-revalidate=600'
+    })
+  }
 
   let baseQuery = `
     SELECT c.id, c.slug, c.name, c.type, c.description, c.target_keywords, c.color, c.created_at, c.parent_id, p.name as parent_name,
@@ -49,7 +70,12 @@ categories.get('/', rateLimit(500, 60, 'public_categories'), async (c) => {
     target_keywords: cat.target_keywords ? JSON.parse(cat.target_keywords as string) : []
   }))
   
-  return c.json({ data: formattedResults, limit, offset })
+  const responseData = { data: formattedResults, limit, offset }
+  c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 1800 }))
+
+  return c.json(responseData, 200, {
+    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600'
+  })
 })
 
 const schema = z.object({
@@ -81,6 +107,7 @@ categories.post('/', authMiddleware, requirePermission('manage_taxonomy'), rateL
   try {
     await c.env.DB.prepare('INSERT INTO categories (id, slug, name, type, description, target_keywords, color, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(id, slug, name, type, description || null, target_keywords ? JSON.stringify(target_keywords) : null, color || null, parent_id || null).run()
+    c.executionCtx.waitUntil(invalidateCategoriesCache(c.env.KV))
     return c.json({ message: 'Kategori berhasil dibuat.', id })
   } catch {
     throw new HTTPException(400, { message: 'Gagal membuat kategori. Slug mungkin sudah digunakan.' })
@@ -137,6 +164,7 @@ categories.put('/:id', authMiddleware, requirePermission('manage_taxonomy'), rat
       .bind(slug, name, type, description || null, target_keywords ? JSON.stringify(target_keywords) : null, color || null, parent_id || null, id).run()
 
     if (result.meta.changes === 0) throw new HTTPException(404, { message: 'Kategori tidak ditemukan.' })
+    c.executionCtx.waitUntil(invalidateCategoriesCache(c.env.KV))
     return c.json({ message: 'Kategori berhasil diperbarui.' })
   } catch (e) {
     if (e instanceof HTTPException) throw e
@@ -159,6 +187,7 @@ categories.delete('/:id', authMiddleware, requirePermission('manage_taxonomy'), 
   if (result.meta.changes === 0) {
     throw new HTTPException(404, { message: 'Kategori tidak ditemukan.' })
   }
+  c.executionCtx.waitUntil(invalidateCategoriesCache(c.env.KV))
   return c.json({ message: 'Kategori berhasil dihapus.' })
 })
 

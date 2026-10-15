@@ -296,7 +296,7 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
   return c.json({ access_token: newAccessToken })
 })
 
-auth.post('/logout', authMiddleware, async (c) => {
+auth.post('/logout', rateLimit(10, 60, 'logout'), authMiddleware, async (c) => {
   const user = c.get('user')
   if (user && user.jti) {
     await c.env.KV.put(`jwt:block:${user.jti}`, 'revoked', { expirationTtl: 900 })

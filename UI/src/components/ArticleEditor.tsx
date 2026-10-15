@@ -1,11 +1,12 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { ArrowLeft, CheckCircle2, AlertCircle, Sparkles, Sliders, Loader2, Send, RefreshCw, Tag } from 'lucide-react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
+import { ArrowLeft, CheckCircle2, AlertCircle, Sparkles, Sliders, Loader2, Send, RefreshCw, Tag, Link2 } from 'lucide-react';
 import SunEditor from 'suneditor-react';
 import 'suneditor/dist/css/suneditor.min.css';
 
 import { Article, Category, UserProfile, Tag as TagType } from '../types';
 import { generateSlug } from '../utils/seoAnalyzer';
 import { FeaturedImageUploader } from './FeaturedImageUploader';
+import { useToast } from '../context/ToastContext';
 
 // Hooks
 import { useArticleForm } from './editor/hooks/useArticleForm';
@@ -14,7 +15,8 @@ import { useSeoGeoAnalysis } from './editor/hooks/useSeoGeoAnalysis';
 import { useSunEditor } from './editor/hooks/useSunEditor';
 
 // UI Subcomponents
-import { AnalysisPanel } from './editor/ui/AnalysisPanel';
+import { AnalysisPanel, SeoTab } from './editor/ui/AnalysisPanel';
+import { extractInternalLinks } from './editor/ui/InternalLinkHelper';
 
 interface ArticleEditorProps {
   article: Article;
@@ -59,15 +61,65 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
     setTagIds, setHasOriginalAngle, setIsComprehensive
   } = setters;
 
+  const { success, info } = useToast();
+  const sunEditorRef = useRef<any>(null);
+  const lastSelectedTextRef = useRef<string>('');
+
   // UI Modes
   const [isSeoPanelOpen, setIsSeoPanelOpen] = useState(true);
   const [serpDevice, setSerpDevice] = useState<'desktop' | 'mobile'>('desktop');
-  const [activeSeoTab, setActiveSeoTab] = useState<'checklist' | 'serp' | 'keywords' | 'geo'>('checklist');
+  const [activeSeoTab, setActiveSeoTab] = useState<SeoTab>('checklist');
   const [lastSavedTime, setLastSavedTime] = useState<string>(
     article.updatedAt ? new Date(article.updatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'Baru saja'
   );
   const [isSaving, setIsSaving] = useState(false);
   const [showNotification, setShowNotification] = useState<string | null>(null);
+
+  // Link Assistant: Hitung tautan internal yang sudah terdeteksi di konten saat ini
+  const detectedInternalLinks = useMemo(() => extractInternalLinks(content), [content]);
+
+  // Link Assistant: Callback untuk menyisipkan tautan internal langsung ke SunEditor
+  const handleInsertInternalLink = useCallback((targetTitle: string, targetSlug: string, customAnchor?: string) => {
+    const url = `/blog/${targetSlug}`;
+    
+    // Tentukan teks jangkar: prioritas customAnchor -> seleksi kursor saat ini -> seleksi terakhir -> judul target
+    let anchorText = customAnchor?.trim();
+    if (!anchorText) {
+      try {
+        const liveSelection = sunEditorRef.current?.getSelection()?.toString()?.trim();
+        anchorText = liveSelection || lastSelectedTextRef.current || targetTitle;
+      } catch (e) {
+        anchorText = lastSelectedTextRef.current || targetTitle;
+      }
+    }
+
+    if (sunEditorRef.current) {
+      try {
+        sunEditorRef.current.focus();
+      } catch (e) {}
+
+      const safeAnchor = anchorText.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const safeTitle = targetTitle.replace(/"/g, '&quot;');
+      const linkHtml = `<a href="${url}" title="${safeTitle}">${safeAnchor}</a>`;
+
+      try {
+        sunEditorRef.current.insertHTML(linkHtml);
+        const newContent = sunEditorRef.current.getContents();
+        if (newContent) {
+          setContent(newContent);
+        }
+      } catch (err) {
+        setContent((prev: string) => prev + ` ${linkHtml}`);
+      }
+
+      lastSelectedTextRef.current = '';
+      if (setHasUnsavedChanges) setHasUnsavedChanges(true);
+      success(`Tautan internal disisipkan: "${anchorText}"`);
+    } else {
+      navigator.clipboard.writeText(url);
+      info(`Tautan disalin ke clipboard: ${url}`);
+    }
+  }, [setContent, setHasUnsavedChanges, success, info]);
 
   // 2. Live Trends API (Custom Hook)
   const { lsiKeywords, isTrendLoading, trendStatus } = useLiveTrends(focusKeyword);
@@ -367,6 +419,30 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
                     </span>
                   )}
                 </div>
+
+                <div className="h-4 w-px bg-slate-200" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSeoPanelOpen(true);
+                    setActiveSeoTab('links');
+                  }}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                    isSeoPanelOpen && activeSeoTab === 'links'
+                      ? 'bg-teal-100 text-teal-800'
+                      : 'text-slate-600 hover:text-teal-700 hover:bg-teal-50'
+                  }`}
+                  title="Buka Pustaka Tautan Internal untuk menyisipkan artikel terkait"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Pustaka Tautan</span>
+                  {detectedInternalLinks.length > 0 && (
+                    <span className="text-[10px] bg-teal-600 text-white px-1.5 py-0.2 rounded-full font-bold">
+                      {detectedInternalLinks.length}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -377,12 +453,31 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
               </div>
               {useMemo(() => (
                 <SunEditor
+                  getSunEditorInstance={(instance) => {
+                    sunEditorRef.current = instance;
+                  }}
                   defaultValue={article.content}
                   onChange={setContent}
                   onImageUploadBefore={handleImageUploadBefore}
                   setOptions={EDITOR_OPTIONS}
+                  onClick={() => {
+                    try {
+                      const sel = sunEditorRef.current?.getSelection();
+                      if (sel && sel.toString().trim()) {
+                        lastSelectedTextRef.current = sel.toString().trim();
+                      }
+                    } catch (e) {}
+                  }}
+                  onKeyUp={() => {
+                    try {
+                      const sel = sunEditorRef.current?.getSelection();
+                      if (sel && sel.toString().trim()) {
+                        lastSelectedTextRef.current = sel.toString().trim();
+                      }
+                    } catch (e) {}
+                  }}
                 />
-              ), [handleImageUploadBefore])}
+              ), [handleImageUploadBefore, setContent, EDITOR_OPTIONS, article.content])}
             </div>
 
             <div className="py-4 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold tracking-widest text-slate-400 uppercase mt-auto">
@@ -413,6 +508,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
               setHasUnsavedChanges={(val) => {
                 if (setHasUnsavedChanges) setHasUnsavedChanges(val);
               }}
+              onInsertLink={handleInsertInternalLink}
             />
           </aside>
         )}

@@ -43,5 +43,10 @@
     "HUB_URL": "https://your-hub-domain.com",
     "ALLOWED_ORIGINS": "https://your-frontend-domain.com,https://your-hub-domain.com",
     "TURNSTILE_HOSTNAMES": "cms.your-domain.com,your-frontend-domain.com"
+  },
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
   }
 }

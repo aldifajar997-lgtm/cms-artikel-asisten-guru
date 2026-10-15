@@ -8,8 +8,15 @@ import xss from 'xss'
 
 const settings = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// GET settings dibuat publik agar frontend (Hub) dapat merender konfigurasi global (Logo, Title, dll)
-settings.get('/', rateLimit(500, 60, 'public_settings'), async (c) => {
+settings.get('/', async (c) => {
+  const cacheKey = 'cache:settings_public'
+  const cached = await c.env.KV.get(cacheKey, 'json')
+  if (cached) {
+    return c.json(cached, 200, {
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=7200'
+    })
+  }
+
   const list = await c.env.DB.prepare('SELECT key, value FROM settings').all()
   const PUBLIC_SETTINGS_KEYS = ['site_title', 'site_description', 'logo_url', 'contact_email', 'theme_color']
   const result: Record<string, string> = {}
@@ -18,7 +25,11 @@ settings.get('/', rateLimit(500, 60, 'public_settings'), async (c) => {
       result[row.key] = row.value
     }
   })
-  return c.json(result)
+
+  c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 86400 }))
+  return c.json(result, 200, {
+    'Cache-Control': 'public, max-age=3600, stale-while-revalidate=7200'
+  })
 })
 
 const singleSchema = z.object({
@@ -48,6 +59,7 @@ settings.put('/', authMiddleware, requirePermission('manage_settings'), rateLimi
     await c.env.DB.batch(stmts)
   }
 
+  c.executionCtx.waitUntil(c.env.KV.delete('cache:settings_public'))
   return c.json({ message: 'Pengaturan berhasil disimpan.' })
 })
 

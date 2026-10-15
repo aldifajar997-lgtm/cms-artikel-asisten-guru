@@ -31,14 +31,79 @@ const toAbsoluteMediaUrl = (origin: string, url: unknown): string | null => {
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+async function verifyInternalS2S(c: any): Promise<boolean> {
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return false
+  const token = authHeader.substring(7).trim()
+  if (!token) return false
+
+  // 1. Verifikasi JWT RS256 resmi dari Hub jika ditandatangani dengan private key Hub
+  if (c.env.HUB_PUBLIC_KEY) {
+    try {
+      const payload = await verify(token, c.env.HUB_PUBLIC_KEY, 'RS256') as any
+      if (payload) return true
+    } catch {
+      // bukan JWT RS256 valid, lanjutkan pengecekan berikutnya
+    }
+  }
+
+  // 2. Verifikasi jika environment menyetel S2S_INTERNAL_SECRET khusus
+  if (c.env.S2S_INTERNAL_SECRET && token === c.env.S2S_INTERNAL_SECRET) {
+    return true
+  }
+
+  // 3. Fallback backward-compatible: jika Hub mengirim string HUB_PUBLIC_KEY (membersihkan spasi & newline)
+  if (c.env.HUB_PUBLIC_KEY) {
+    const cleanPublic = c.env.HUB_PUBLIC_KEY.replace(/[\r\n\s]/g, '')
+    const cleanToken = token.replace(/[\r\n\s]/g, '')
+    if (cleanPublic.length > 0 && cleanToken === cleanPublic) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function invalidateProductCaches(kv: KVNamespace, slug?: string) {
+  try {
+    const listPromises: Promise<any>[] = []
+    if (slug) {
+      listPromises.push(kv.delete(`cache:product_reviews:${slug}`))
+    }
+    const productList = await kv.list({ prefix: 'cache:products_list:' })
+    // Batasi penghapusan hingga 50 key pertama agar tidak melebihi kuota subrequest dan delete KV
+    for (const key of productList.keys.slice(0, 50)) {
+      listPromises.push(kv.delete(key.name))
+    }
+    await Promise.all(listPromises)
+  } catch (err) {
+    console.error('Failed to invalidate product caches:', err)
+  }
+}
+
 // --- PUBLIC & HUB ROUTES ---
 
-products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
+products.get('/public', async (c) => {
   const { limit, offset } = getPagination(c, 12, 50)
   const search = c.req.query('search') || ''
   const categoryId = c.req.query('category_id') || ''
   const categorySlug = c.req.query('category_slug') || ''
   const sellerId = c.req.query('seller_id') || ''
+
+  // Sanitasi input untuk mencegah Cache Key Poisoning & batas keras SQLite D1 LIKE (50 bytes)
+  const safeSearch = search ? search.substring(0, 40).trim() : ''
+  const safeCategorySlug = categorySlug ? categorySlug.substring(0, 100).trim() : ''
+  const safeCategoryId = categoryId ? categoryId.substring(0, 50).trim() : ''
+  const safeSellerId = sellerId ? sellerId.substring(0, 50).trim() : ''
+
+  const cacheKey = `cache:products_list:${limit}:${offset}:${safeCategoryId || 'any'}:${safeCategorySlug || 'any'}:${safeSellerId || 'any'}:${safeSearch || 'none'}`
+
+  const cachedData = await c.env.KV.get(cacheKey, 'json')
+  if (cachedData) {
+    return c.json(cachedData, 200, {
+      'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+    })
+  }
   
   let countQuery = "SELECT count(*) as total FROM products p WHERE p.status = 'published'"
   let dataQuery = `
@@ -51,30 +116,30 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
   const countParams: any[] = []
   const dataParams: any[] = []
   
-  if (search) {
+  if (safeSearch) {
     countQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
     dataQuery += " AND (p.title LIKE ? OR p.description LIKE ?)"
-    countParams.push(`%${search}%`, `%${search}%`)
-    dataParams.push(`%${search}%`, `%${search}%`)
+    countParams.push(`%${safeSearch}%`, `%${safeSearch}%`)
+    dataParams.push(`%${safeSearch}%`, `%${safeSearch}%`)
   }
 
-  if (categoryId) {
+  if (safeCategoryId) {
     countQuery += " AND p.category_id = ?"
     dataQuery += " AND p.category_id = ?"
-    countParams.push(categoryId)
-    dataParams.push(categoryId)
-  } else if (categorySlug) {
+    countParams.push(safeCategoryId)
+    dataParams.push(safeCategoryId)
+  } else if (safeCategorySlug) {
     countQuery += " AND p.category_id IN (SELECT id FROM categories WHERE slug = ? AND type = 'product')"
     dataQuery += " AND c.slug = ?"
-    countParams.push(categorySlug)
-    dataParams.push(categorySlug)
+    countParams.push(safeCategorySlug)
+    dataParams.push(safeCategorySlug)
   }
 
-  if (sellerId) {
+  if (safeSellerId) {
     countQuery += " AND p.author_id = ?"
     dataQuery += " AND p.author_id = ?"
-    countParams.push(sellerId)
-    dataParams.push(sellerId)
+    countParams.push(safeSellerId)
+    dataParams.push(safeSellerId)
   }
   
   dataQuery += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
@@ -96,10 +161,18 @@ products.get('/public', rateLimit(500, 60, 'public_products'), async (c) => {
     seller_cover_url: toAbsoluteMediaUrl(origin, p.seller_cover_url)
   }))
 
-  return c.json({ data: mappedResults, limit, offset, total })
+  const responseData = { data: mappedResults, limit, offset, total }
+
+  c.executionCtx.waitUntil(
+    c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 180 })
+  )
+
+  return c.json(responseData, 200, {
+    'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+  })
 })
 
-products.get('/public/:slug', rateLimit(500, 60, 'public_products_detail'), async (c) => {
+products.get('/public/:slug', async (c) => {
   const slug = c.req.param('slug')
   
   const product = await c.env.DB.prepare(`
@@ -456,9 +529,17 @@ products.post('/internal/:id/sale', rateLimit(500, 60, 'internal_sale'), async (
 // --- REVIEWS ROUTES ---
 products.get('/public/:slug/reviews', async (c) => {
   const slug = c.req.param('slug');
+  const cacheKey = `cache:product_reviews:${slug}`;
   
+  const cachedData = await c.env.KV.get(cacheKey, 'json');
+  if (cachedData) {
+    return c.json(cachedData, 200, {
+      'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+    });
+  }
+
   // Get productId
-  const product = await c.env.DB.prepare('SELECT id FROM products WHERE slug = ?').bind(slug).first();
+  const product = await c.env.DB.prepare('SELECT id FROM products WHERE slug = ?').bind(slug).first<{ id: string }>();
   if (!product) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' });
 
   // Get reviews (Dibatasi 50 terbaru untuk mencegah memory crash)
@@ -470,18 +551,20 @@ products.get('/public/:slug/reviews', async (c) => {
     LIMIT 50
   `).bind(product.id).all();
 
-  // We only have user_id (which is Hub account_id). We don't have their names in CMS DB since they are Hub users.
-  // Wait, in Hub they have names! Hub will fetch the names or Hub will send them?
-  // Let's just return the user_id, and the frontend will fetch names or Hub API will enrich them.
-  // Actually, better: Hub frontend queries Hub API which queries CMS3 and enriches it.
-  // For now, let's just return what we have.
-  
-  return c.json({ success: true, reviews: reviews.results });
+  const responseData = { success: true, reviews: reviews.results };
+
+  c.executionCtx.waitUntil(
+    c.env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: 180 })
+  );
+
+  return c.json(responseData, 200, {
+    'Cache-Control': 'public, max-age=180, stale-while-revalidate=300'
+  });
 });
 
-products.post('/internal-reviews', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || authHeader !== `Bearer ${c.env.HUB_PUBLIC_KEY}`) {
+products.post('/internal-reviews', rateLimit(500, 60, 'internal_reviews'), async (c) => {
+  const isAuthorized = await verifyInternalS2S(c);
+  if (!isAuthorized) {
     throw new HTTPException(401, { message: 'Unauthorized S2S Call' });
   }
 
@@ -517,15 +600,17 @@ products.post('/internal-reviews', async (c) => {
       `).bind(productId, productId, productId)
     ]);
     
+    const prod = await c.env.DB.prepare('SELECT slug FROM products WHERE id = ?').bind(productId).first<{ slug: string }>();
+    c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, prod?.slug));
     return c.json({ success: true, id: reviewId });
   } catch (err: any) {
     throw err;
   }
 });
 
-products.get('/internal-reviews/my', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || authHeader !== `Bearer ${c.env.HUB_PUBLIC_KEY}`) {
+products.get('/internal-reviews/my', rateLimit(500, 60, 'internal_reviews_my'), async (c) => {
+  const isAuthorized = await verifyInternalS2S(c);
+  if (!isAuthorized) {
     throw new HTTPException(401, { message: 'Unauthorized S2S Call' });
   }
 
@@ -688,6 +773,7 @@ products.post('/', requirePermission('create_product'), rateLimit(30, 60, 'produ
       )
     ])
 
+    c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, body.slug))
     return c.json({ message: 'Produk berhasil dibuat.', id })
   } catch (error: any) {
     if (error.message && error.message.includes('UNIQUE constraint failed')) {
@@ -800,6 +886,7 @@ products.put('/:id', requirePermission('edit_product'), rateLimit(30, 60, 'produ
 
     await c.env.DB.batch(statements)
 
+    c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, body.slug || existing.slug))
     return c.json({ message: 'Produk berhasil diperbarui.' })
   } catch (error: any) {
     if (error.message && error.message.includes('UNIQUE constraint failed')) {
@@ -832,6 +919,7 @@ products.put('/:id/archive', requirePermission('edit_product'), rateLimit(30, 60
 
   await c.env.DB.prepare("UPDATE products SET status = 'archived', slug = slug || '-archived-' || strftime('%s', 'now'), updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(targetId).run()
   
+  c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, (existing as any).slug))
   return c.json({ message: 'Produk berhasil diarsipkan.' })
 })
 
@@ -865,6 +953,7 @@ products.delete('/:id', requirePermission('delete_product'), rateLimit(30, 60, '
   // Eksekusi Hard Delete D1
   await c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId).run()
 
+  c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, (existing as any).slug))
   return c.json({ message: 'Produk dan berkas digital berhasil dimusnahkan permanen.' })
 })
 

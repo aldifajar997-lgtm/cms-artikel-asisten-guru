@@ -21,122 +21,275 @@ export function calculateGEOAnalysis(
   let score = 0;
   const checks: GEOCheckItem[] = [];
 
-  const cleanText = content ? content.replace(/<[^>]*>?/gm, ' ') : '';
-  const wordCount = cleanText.trim().split(/\s+/).filter((w) => w.length > 0).length;
+  const safeContent = content || '';
+  const cleanText = safeContent.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+  const words = cleanText.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
 
-  // K. Bukti & Kredibilitas (40 poin)
-  // K1: Statistik/angka berkonteks (12 poin)
-  const numbersRegex = /\b\d+(?:[,.]\d+)?\s*(?:%|persen|tahun|orang|sekolah|rp|rupiah|ribu|juta|miliar|triliun)\b/gi;
+  // ==========================================
+  // 1. BUKTI & KREDIBILITAS (35 POIN)
+  // ==========================================
+
+  // K1: Data & Statistik Berkonteks (15 Poin)
+  const numbersRegex = /\b\d+(?:[,.]\d+)?\s*(?:%|persen|tahun|orang|sekolah|siswa|guru|peserta|rp|rupiah|ribu|juta|miliar|triliun)\b/gi;
   const numbersMatch = cleanText.match(numbersRegex);
   const statsCount = numbersMatch ? numbersMatch.length : 0;
   if (statsCount >= 2) {
-    score += 12;
-    checks.push({ id: 'k1', label: 'Statistik Berkonteks', status: 'good', detail: `Ditemukan ${statsCount} statistik/angka.` });
+    score += 15;
+    checks.push({ 
+      id: 'k1', 
+      label: 'Statistik & Angka Berkonteks', 
+      status: 'good', 
+      detail: `Ditemukan ${statsCount} data angka/kuantitatif. AI memprioritaskan konten berbasis data riil.` 
+    });
+  } else if (statsCount === 1) {
+    score += 8;
+    checks.push({ 
+      id: 'k1', 
+      label: 'Statistik Masih Minim', 
+      status: 'warning', 
+      detail: 'Baru 1 data angka/statistik. Tambahkan minimal 1 data kuantitatif lagi untuk meningkatkan otoritas.' 
+    });
   } else {
-    checks.push({ id: 'k1', label: 'Statistik Berkonteks', status: 'warning', detail: `Hanya ${statsCount}/2 statistik ditemukan.` });
+    checks.push({ 
+      id: 'k1', 
+      label: 'Belum Ada Data Statistik', 
+      status: 'bad', 
+      detail: 'Sertakan data angka, persentase, atau statistik terukur agar AI menganggap artikel bernilai rujukan.' 
+    });
   }
 
-  // K2: Sumber dikutip (12 poin)
+  // K2: Sumber Eksternal Otoritatif Dikutip (10 Poin)
   const externalLinkRegex = /<a\s+(?:[^>]*?\s+)?href=(["'])(http[s]?:\/\/(?!(?:www\.)?asisten-guru\.id)[^"']+)\1/gi;
-  const externalLinksMatch = content ? content.match(externalLinkRegex) : null;
+  const externalLinksMatch = safeContent.match(externalLinkRegex);
   const externalLinksCount = externalLinksMatch ? externalLinksMatch.length : 0;
   if (externalLinksCount >= 2) {
-    score += 12;
-    checks.push({ id: 'k2', label: 'Sumber Eksternal Dikutip', status: 'good', detail: `Ditemukan ${externalLinksCount} tautan ke sumber eksternal.` });
+    score += 10;
+    checks.push({ 
+      id: 'k2', 
+      label: 'Sumber Eksternal Terpercaya Dikutip', 
+      status: 'good', 
+      detail: `Ditemukan ${externalLinksCount} tautan rujukan eksternal. Sinyal sitasi kuat untuk RAG.` 
+    });
+  } else if (externalLinksCount === 1) {
+    score += 5;
+    checks.push({ 
+      id: 'k2', 
+      label: 'Rujukan Eksternal Terbatas', 
+      status: 'warning', 
+      detail: 'Ditemukan 1 tautan luar. Tambahkan setidaknya 1 rujukan otoritatif lagi (jurnal, regulasi, riset).' 
+    });
   } else {
-    checks.push({ id: 'k2', label: 'Sumber Eksternal Dikutip', status: 'warning', detail: `Ditemukan ${externalLinksCount}/2 tautan eksternal.` });
+    checks.push({ 
+      id: 'k2', 
+      label: 'Belum Ada Rujukan Eksternal', 
+      status: 'warning', 
+      detail: 'Tautkan sumber primer (situs resmi/studi) agar jawaban AI menyertakan domain Anda sebagai sitasi.' 
+    });
   }
 
-  // K3: Kutipan langsung berattribusi (8 poin)
+  // K3: Kutipan Langsung / Pernyataan Ahli (10 Poin)
   const blockquoteRegex = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi;
-  const blockquoteMatch = content ? content.match(blockquoteRegex) : null;
+  const blockquoteMatch = safeContent.match(blockquoteRegex);
   const quoteCount = blockquoteMatch ? blockquoteMatch.length : 0;
   if (quoteCount >= 1) {
+    score += 10;
+    checks.push({ 
+      id: 'k3', 
+      label: 'Kutipan Langsung (Blockquote)', 
+      status: 'good', 
+      detail: `Ditemukan ${quoteCount} elemen kutipan. Format ini mempermudah ekstraksi kutipan langsung oleh LLM.` 
+    });
+  } else {
+    checks.push({ 
+      id: 'k3', 
+      label: 'Belum Ada Kutipan Langsung', 
+      status: 'warning', 
+      detail: 'Gunakan elemen blockquote (kutipan ahli, pejabat, atau hasil wawancara) untuk nilai E-E-A-T.' 
+    });
+  }
+
+  // ==========================================
+  // 2. KETERBACAAN MESIN AI & STRUKTUR (35 POIN)
+  // ==========================================
+
+  // S1: Pola Tanya-Jawab / FAQ Sub-heading (10 Poin) — BARU: Kunci AI Overview & Perplexity!
+  const questionHeadingRegex = /<h[23][^>]*>(?:[^<]*\?|(?:apa|bagaimana|mengapa|kapan|siapa|dimana|berapa|kenapa|apakah)\b[^<]*)<\/h[23]>/gi;
+  const questionHeadingMatch = safeContent.match(questionHeadingRegex);
+  const qHeadingCount = questionHeadingMatch ? questionHeadingMatch.length : 0;
+  if (qHeadingCount >= 1) {
+    score += 10;
+    checks.push({ 
+      id: 's1-qa', 
+      label: 'Sub-heading Pola Q&A / FAQ', 
+      status: 'good', 
+      detail: `Ditemukan ${qHeadingCount} sub-heading berpola pertanyaan. Sangat diutamakan oleh AI Overviews & Perplexity.` 
+    });
+  } else {
+    checks.push({ 
+      id: 's1-qa', 
+      label: 'Sub-heading Pola Tanya-Jawab Belum Ada', 
+      status: 'warning', 
+      detail: 'Buat setidaknya satu judul bagian berbentuk pertanyaan (misal: "Bagaimana cara...", "Apa faktor...") untuk menjawab query pengguna.' 
+    });
+  }
+
+  // S2: Elemen Terstruktur (Tabel Komparasi / Lists) (10 Poin) — UPGRADED: Cek Tabel Riil!
+  const hasTable = /<table[^>]*>/i.test(safeContent);
+  const hasList = /<(ul|ol)[^>]*>/i.test(safeContent);
+  if (hasTable) {
+    score += 10;
+    checks.push({ 
+      id: 's2-struct', 
+      label: 'Tabel Data Terstruktur Terpasang', 
+      status: 'good', 
+      detail: 'Memiliki elemen tabel. Format tabel adalah format yang paling disukai LLM untuk data perbandingan.' 
+    });
+  } else if (hasList) {
     score += 8;
-    checks.push({ id: 'k3', label: 'Kutipan Langsung', status: 'good', detail: `Ditemukan ${quoteCount} kutipan (blockquote).` });
+    checks.push({ 
+      id: 's2-struct', 
+      label: 'Daftar Poin (List) Tersedia', 
+      status: 'good', 
+      detail: 'Ditemukan format bullet/numbered list. Tambahkan tabel komparasi jika ada perbandingan data.' 
+    });
   } else {
-    checks.push({ id: 'k3', label: 'Kutipan Langsung', status: 'warning', detail: `Tidak ditemukan elemen kutipan (blockquote).` });
+    checks.push({ 
+      id: 's2-struct', 
+      label: 'Belum Ada Tabel atau List', 
+      status: 'bad', 
+      detail: 'Gunakan tabel data atau daftar poin terstruktur agar LLM mudah mengekstrak informasi ringkas.' 
+    });
   }
 
-  // K4: Tanggal terbit dan diperbarui akurat (8 poin) -> Diasumsikan selalu terisi oleh sistem
-  score += 8;
-  checks.push({ id: 'k4', label: 'Validitas Tanggal', status: 'good', detail: 'Sistem mengelola tanggal publikasi otomatis.' });
+  // S3: Bebas Dinding Teks / Paragraf Ringkas (10 Poin) — MENGGANTIKAN DUMMY LAMA!
+  const pMatches = safeContent.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
+  let hasWallOfText = false;
+  let maxWordsInP = 0;
+  pMatches.forEach(pTag => {
+    const pText = pTag.replace(/<[^>]*>?/gm, ' ').trim();
+    const count = pText.split(/\s+/).filter(Boolean).length;
+    if (count > maxWordsInP) maxWordsInP = count;
+    if (count > 100) hasWallOfText = true;
+  });
 
-  // U. Keunikan & Nilai Asli (25 poin)
-  // U1: Sudut pandang / orisinal (18 poin) - Manual checkbox
-  if (hasOriginalAngle) {
-    score += 18;
-    checks.push({ id: 'u1', label: 'Sudut Pandang Orisinal', status: 'good', detail: 'Telah dikonfirmasi oleh editor.' });
+  if (wordCount >= 100 && !hasWallOfText) {
+    score += 10;
+    checks.push({ 
+      id: 's3-chunking', 
+      label: 'Bebas Dinding Teks (Paragraf Ringkas)', 
+      status: 'good', 
+      detail: `Paragraf terdistribusi ideal (terpanjang: ${maxWordsInP} kata, aman < 100). Sangat optimal untuk AI chunking.` 
+    });
+  } else if (hasWallOfText) {
+    score += 4;
+    checks.push({ 
+      id: 's3-chunking', 
+      label: 'Peringatan: Dinding Teks Terdeteksi', 
+      status: 'warning', 
+      detail: `Ada paragraf dengan ${maxWordsInP} kata. Pecah menjadi paragraf yang lebih pendek (maksimal 80-100 kata) agar tidak melelahkan pembaca & AI.` 
+    });
   } else {
-    checks.push({ id: 'u1', label: 'Sudut Pandang Orisinal', status: 'warning', detail: 'Perlu konfirmasi sudut pandang orisinal.' });
+    checks.push({ 
+      id: 's3-chunking', 
+      label: 'Paragraf Terlalu Sedikit', 
+      status: 'warning', 
+      detail: 'Konten masih kosong atau belum memiliki paragraf yang memadai.' 
+    });
   }
 
-  // U2: Tuntas (7 poin) - Manual checkbox
-  if (isComprehensive) {
-    score += 7;
-    checks.push({ id: 'u2', label: 'Pembahasan Tuntas', status: 'good', detail: 'Telah dikonfirmasi oleh editor.' });
-  } else {
-    checks.push({ id: 'u2', label: 'Pembahasan Tuntas', status: 'warning', detail: 'Perlu konfirmasi pembahasan tuntas.' });
-  }
-
-  // S. Struktur & Keterbacaan (20 poin)
-  // S1: Heading berjenjang (6 poin)
-  const h1Match = content ? content.match(/<h1[^>]*>[\s\S]*?<\/h1>/gi) : null;
-  const h2Match = content ? content.match(/<h2[^>]*>[\s\S]*?<\/h2>/gi) : null;
-  if ((h1Match && h1Match.length === 1) || (h2Match && h2Match.length >= 1)) {
-    score += 6;
-    checks.push({ id: 's1', label: 'Struktur Heading', status: 'good', detail: 'Struktur heading baik.' });
-  } else {
-    checks.push({ id: 's1', label: 'Struktur Heading', status: 'warning', detail: 'Gunakan H2 untuk sub-topik.' });
-  }
-
-  // S3: Bagian ringkas (4 poin) - Tidak ada blok > 300 kata tanpa heading
-  score += 4; // Simplifikasi: Asumsikan baik secara default kecuali terlalu panjang
-  checks.push({ id: 's3', label: 'Bagian Ringkas', status: 'good', detail: 'Paragraf terdistribusi dengan baik.' });
-
-  // S4: Keterbacaan (rata-rata <= 25 kata) (6 poin)
+  // S4: Keterbacaan Kalimat (5 Poin)
   const sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 0);
   const avgSentenceLength = sentences.length > 0 ? wordCount / sentences.length : 0;
-  if (avgSentenceLength <= 25 && avgSentenceLength > 0) {
-    score += 6;
-    checks.push({ id: 's4', label: 'Keterbacaan', status: 'good', detail: `Rata-rata kata per kalimat: ${Math.round(avgSentenceLength)} (≤ 25).` });
+  if (avgSentenceLength > 0 && avgSentenceLength <= 25) {
+    score += 5;
+    checks.push({ 
+      id: 's4-readability', 
+      label: 'Keterbacaan Kalimat Ideal', 
+      status: 'good', 
+      detail: `Rata-rata ${Math.round(avgSentenceLength)} kata per kalimat (≤ 25 kata). Mudah dipahami manusia dan model bahasa.` 
+    });
   } else if (avgSentenceLength > 25) {
-    checks.push({ id: 's4', label: 'Keterbacaan', status: 'warning', detail: `Kalimat terlalu panjang (Rata-rata: ${Math.round(avgSentenceLength)} kata).` });
+    checks.push({ 
+      id: 's4-readability', 
+      label: 'Kalimat Terlalu Panjang', 
+      status: 'warning', 
+      detail: `Rata-rata ${Math.round(avgSentenceLength)} kata per kalimat. Gunakan kalimat yang lebih ringkas dan lugas.` 
+    });
   } else {
-    checks.push({ id: 's4', label: 'Keterbacaan', status: 'warning', detail: 'Artikel masih kosong, belum bisa dianalisis.' });
+    checks.push({ 
+      id: 's4-readability', 
+      label: 'Keterbacaan Belum Terukur', 
+      status: 'warning', 
+      detail: 'Ketik minimal 1 kalimat lengkap untuk mengukur keterbacaan.' 
+    });
   }
 
-  // S2: Elemen terstruktur (4 poin)
-  const listsOrTables = content ? content.match(/<(ul|ol|table)[^>]*>/gi) : null;
-  if (listsOrTables && listsOrTables.length >= 1) {
-    score += 4;
-    checks.push({ id: 's2', label: 'Elemen Terstruktur', status: 'good', detail: 'Ditemukan tabel atau list.' });
+  // ==========================================
+  // 3. KEUNIKAN & HUMAN VALUE (30 POIN)
+  // ==========================================
+
+  // U1: Sudut Pandang Orisinal / Pengalaman Lapangan (15 Poin)
+  if (hasOriginalAngle) {
+    score += 15;
+    checks.push({ 
+      id: 'u1', 
+      label: 'Sudut Pandang Orisinal (E-E-A-T)', 
+      status: 'good', 
+      detail: 'Dikonfirmasi memiliki analisis mandiri/pengalaman lapangan langsung.' 
+    });
   } else {
-    checks.push({ id: 's2', label: 'Elemen Terstruktur', status: 'warning', detail: 'Gunakan tabel atau list jika relevan.' });
+    checks.push({ 
+      id: 'u1', 
+      label: 'Perlu Konfirmasi Sudut Pandang Orisinal', 
+      status: 'warning', 
+      detail: 'Centang evaluasi manual jika artikel memuat insight unik atau data primer yang tidak ada di situs lain.' 
+    });
   }
 
-  // L. Keterhubungan & Media (10 poin)
-  // L1: Tautan internal (5 poin)
+  // U2: Pembahasan Tuntas (10 Poin)
+  if (isComprehensive) {
+    score += 10;
+    checks.push({ 
+      id: 'u2', 
+      label: 'Pembahasan Menyeluruh & Tuntas', 
+      status: 'good', 
+      detail: 'Dikonfirmasi menjawab topik inti secara tuntas tanpa menyisakan pertanyaan pembaca.' 
+    });
+  } else {
+    checks.push({ 
+      id: 'u2', 
+      label: 'Perlu Konfirmasi Pembahasan Tuntas', 
+      status: 'warning', 
+      detail: 'Centang evaluasi manual jika artikel memberikan jawaban komprehensif.' 
+    });
+  }
+
+  // L1: Tautan Internal Kontekstual (5 Poin)
   if (internalLinksCount >= 2) {
     score += 5;
-    checks.push({ id: 'l1', label: 'Tautan Internal', status: 'good', detail: `Ditemukan ${internalLinksCount} tautan internal.` });
+    checks.push({ 
+      id: 'l1', 
+      label: 'Tautan Internal Relevan', 
+      status: 'good', 
+      detail: `Ditemukan ${internalLinksCount} tautan ke ekosistem artikel asisten-guru.id.` 
+    });
+  } else if (internalLinksCount === 1) {
+    score += 2;
+    checks.push({ 
+      id: 'l1', 
+      label: 'Tautan Internal Terbatas', 
+      status: 'warning', 
+      detail: 'Baru 1 tautan internal. Tambahkan 1 lagi untuk menghubungkan topik terkait.' 
+    });
   } else {
-    checks.push({ id: 'l1', label: 'Tautan Internal', status: 'warning', detail: `Hanya ${internalLinksCount}/2 tautan internal ditemukan.` });
+    checks.push({ 
+      id: 'l1', 
+      label: 'Belum Ada Tautan Internal', 
+      status: 'warning', 
+      detail: 'Sematkan tautan internal untuk memandu pembaca & AI memahami konteks situs.' 
+    });
   }
-
-  // L2: Gambar unggulan relevan (5 poin)
-  if (hasImage && hasImageAlt) {
-    score += 5;
-    checks.push({ id: 'l2', label: 'Gambar Unggulan', status: 'good', detail: 'Gambar unggulan dengan alt text tersedia.' });
-  } else if (hasImage) {
-    checks.push({ id: 'l2', label: 'Gambar Unggulan', status: 'warning', detail: 'Alt text gambar unggulan kosong.' });
-  } else {
-    checks.push({ id: 'l2', label: 'Gambar Unggulan', status: 'warning', detail: 'Gambar unggulan tidak tersedia.' });
-  }
-
-  // D. Konsistensi Data Terstruktur (5 poin)
-  score += 5;
-  checks.push({ id: 'd1', label: 'Konsistensi JSON-LD', status: 'good', detail: 'Sistem mengelola konsistensi data otomatis.' });
 
   return {
     score: Math.min(100, Math.max(0, score)),
