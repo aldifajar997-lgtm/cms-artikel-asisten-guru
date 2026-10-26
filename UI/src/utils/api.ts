@@ -1,12 +1,10 @@
 import axios from 'axios';
 
 // Konfigurasi Axios default
+// Di production (Vite build), cegah kebocoran request ke localhost dengan fallback ke same-origin /api
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8787/api',
+  baseURL: import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api'),
   withCredentials: true, // Penting agar cookie httpOnly (refresh_token) terkirim
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // Menyimpan access token di memory
@@ -25,6 +23,18 @@ api.interceptors.request.use(
   (config) => {
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+    // Ketika payload berupa FormData, hapus Content-Type dari AxiosHeaders
+    // agar browser menyematkan multipart/form-data beserta boundary token yang valid secara otomatis.
+    if (config.data instanceof FormData) {
+      if (config.headers) {
+        if (typeof (config.headers as any).delete === 'function') {
+          (config.headers as any).delete('Content-Type');
+          (config.headers as any).delete('content-type');
+        }
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+      }
     }
     return config;
   },

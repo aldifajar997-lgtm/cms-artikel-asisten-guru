@@ -24,10 +24,14 @@ HUB_URL=https://asisten-guru.id
 
 # Daftar origin yang diizinkan untuk CORS (pisahkan dengan koma, tanpa spasi)
 # Production: https://asisten-guru.id,https://www.asisten-guru.id
-# Local dev: http://localhost:3000
-ALLOWED_ORIGINS=http://localhost:3000
+# Local dev: http://localhost:3000,http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8787
 
 # Cloudflare Turnstile Configuration
 # Gunakan dummy testing secret untuk local dev (jika menggunakan testing sitekey)
 TURNSTILE_SECRET=1x0000000000000000000000000000000AA
 TURNSTILE_HOSTNAMES=localhost
+
+# Kunci Rahasia S2S (Server-to-Server) antara CMS3 dan Hub asisten-guru.id
+# Wajib sama nilainya di kedua environment (CMS3 dan Hub)
+S2S_INTERNAL_SECRET=ganti-dengan-secret-s2s-bersama-minimal-32-karakter

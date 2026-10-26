@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <!-- Definition for Gradients -->
+  <defs>
+    <linearGradient id="tealGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#074e44" />
+      <stop offset="50%" stop-color="#0e6f62" />
+      <stop offset="100%" stop-color="#229a8a" />
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0e6f62" />
+      <stop offset="50%" stop-color="#2ca191" />
+      <stop offset="100%" stop-color="#54beae" />
+    </linearGradient>
+  </defs>
+
+  <!-- Open Book at the bottom -->
+  <!-- Bottom Cover (Dark Teal-Green) -->
+  <path d="M 20,65 Q 40,78 60,71 Q 80,78 100,65 L 100,69 Q 80,82 60,75 Q 40,82 20,69 Z" fill="#074e44" />
+  <!-- Under Pages Shadow -->
+  <path d="M 22,63 Q 40,76 60,69 Q 80,76 98,63 L 98,66 Q 80,79 60,72 Q 40,79 22,66 Z" fill="#14524a" opacity="0.3" />
+  <!-- Left Page (Teal) -->
+  <path d="M 22,61 Q 40,74 60,67 L 60,70 Q 40,77 22,64 Z" fill="#2ca191" />
+  <!-- Right Page (Teal) -->
+  <path d="M 60,67 Q 80,74 98,61 L 98,64 Q 80,77 60,70 Z" fill="#2ca191" />
+
+  <!-- Stylized Figure / Person on the left -->
+  <!-- Head -->
+  <circle cx="52" cy="33" r="7" fill="none" stroke="#0e6f62" stroke-width="3" />
+  <!-- Body/Torso (curved inline leaf element) -->
+  <path d="M 52,40 C 44,40 40,51 51,62 C 51,63 50,65 49,68 C 50,66 52,62 53,60" fill="none" stroke="#0e6f62" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Soaring Arrow curve -->
+  <!-- Swoosh Path -->
+  <path d="M 48,58 Q 68,54 80,41 Q 86,34 88,27" fill="none" stroke="url(#arrowGrad)" stroke-width="4.5" stroke-linecap="round" />
+  <!-- Arrow Head -->
+  <path d="M 88,27 L 85,34 L 81,32 Z" fill="#0e6f62" />
+  <path d="M 88,27 L 80,29 L 82,33 Z" fill="#0e6f62" />
+  
+  <!-- Leaves -->
+  <!-- Leaf 1 (Near head/arrow) -->
+  <path d="M 64,31 C 64,31 65,37 68,36 C 71,35 69,28 69,28 C 69,28 66,28 64,31 Z" fill="#4fa597" />
+  <path d="M 64,31 C 66,31 68,33 68,36" fill="none" stroke="#229a8a" stroke-width="0.5" />
+  <!-- Leaf 2 (Near the arrow body) -->
+  <path d="M 48,46 C 48,46 51,50 55,47 C 59,44 54,41 54,41 C 54,41 51,42 48,46 Z" fill="#4fa597" />
+  <!-- Leaf 3 (Right side of the book background) -->
+  <path d="M 78,51 C 74,51 73,56 78,56 C 83,56 82,51 78,51 Z" fill="#1b5a51" />
+
+  <!-- Four-point star/sparkle -->
+  <path d="M 84,41 Q 84,44 87,44 Q 84,44 84,47 Q 84,44 81,44 Q 84,44 84,41 Z" fill="#0e6f62" />
+</svg>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserAdmin, Role } from '../types';
 import api, { handleApiError } from '../utils/api';
-import { Plus, Search, MoreVertical, Edit2, Lock, Shield, UserX, UserCheck, Loader2, Mail } from 'lucide-react';
+import { Plus, Search, MoreVertical, Edit2, Lock, Shield, UserX, UserCheck, Loader2, Mail, Phone, MessageCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 
@@ -184,7 +184,7 @@ export const UserSettings: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold overflow-hidden shrink-0">
                         {user.avatar_url ? (
-                          <img src={user.avatar_url.startsWith('http') ? user.avatar_url : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${user.avatar_url}`} alt="" className="w-full h-full object-cover" />
+                          <img src={user.avatar_url.startsWith('http') ? user.avatar_url : `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}${user.avatar_url}`} alt="" className="w-full h-full object-cover" />
                         ) : (
                           (user.name || user.email).charAt(0).toUpperCase()
                         )}
@@ -192,6 +192,29 @@ export const UserSettings: React.FC = () => {
                       <div>
                         <p className="font-semibold text-slate-900">{user.name || 'User Baru'}</p>
                         <p className="text-xs text-slate-500">{user.email}</p>
+                        {user.phone_number && (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] text-teal-700 font-mono flex items-center gap-1">
+                              <Phone className="w-3 h-3 text-teal-600 shrink-0" />
+                              <span>{user.phone_number}</span>
+                            </span>
+                            {(() => {
+                              const cleanDigits = user.phone_number.replace(/[^0-9]/g, '');
+                              const waNumber = cleanDigits.startsWith('0') ? '62' + cleanDigits.slice(1) : cleanDigits;
+                              return (
+                                <a
+                                  href={`https://wa.me/${waNumber}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Chat WhatsApp Pengguna"
+                                  className="text-emerald-600 hover:text-emerald-700 p-0.5 inline-flex items-center"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </a>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>

@@ -9,6 +9,19 @@ import xss from 'xss'
 import { getPagination } from '../utils/pagination'
 import { rateLimit } from '../middlewares/rate-limit'
 
+const ALLOWED_IFRAME_HOSTS = [
+  'www.youtube.com',
+  'youtube.com',
+  'www.youtube-nocookie.com',
+  'youtube-nocookie.com',
+  'player.vimeo.com',
+  'vimeo.com',
+  'open.spotify.com',
+  'w.soundcloud.com',
+  'docs.google.com',
+  'drive.google.com'
+]
+
 const customWhiteList = { ...(xss as any).getDefaultWhiteList() }
 Object.keys(customWhiteList).forEach((tag) => {
   customWhiteList[tag].push('style', 'class')
@@ -17,6 +30,42 @@ customWhiteList.iframe = ['src', 'allow', 'allowfullscreen', 'frameborder', 'scr
 customWhiteList.video = ['src', 'width', 'height', 'controls', 'autoplay', 'loop', 'muted', 'style', 'class']
 customWhiteList.audio = ['src', 'controls', 'style', 'class']
 customWhiteList.source = ['src', 'type']
+
+export const sanitizeRichContent = (html: string): string => {
+  return xss(html, {
+    whiteList: customWhiteList,
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style'],
+    onTagAttr: (tag, name, value) => {
+      if (tag === 'iframe' && name === 'src') {
+        try {
+          const u = new URL(value)
+          if (u.protocol === 'https:' && ALLOWED_IFRAME_HOSTS.includes(u.hostname.toLowerCase())) {
+            return `${name}="${(xss as any).escapeAttrValue(value)}"`
+          }
+        } catch {}
+        // Hapus attribute src jika host tidak diizinkan (Audit #3)
+        return ''
+      }
+      if ((tag === 'video' || tag === 'audio' || tag === 'source') && name === 'src') {
+        try {
+          if (value.startsWith('/') || value.startsWith('./')) {
+            return `${name}="${(xss as any).escapeAttrValue(value)}"`
+          }
+          const u = new URL(value)
+          if (u.protocol === 'https:' || u.protocol === 'http:') {
+            return `${name}="${(xss as any).escapeAttrValue(value)}"`
+          }
+        } catch {}
+        return ''
+      }
+      if (name === 'style') {
+        const cleanStyle = value.replace(/javascript\s*:/gi, '').replace(/expression\s*\(/gi, '').replace(/vbscript\s*:/gi, '')
+        return `${name}="${(xss as any).escapeAttrValue(cleanStyle)}"`
+      }
+    }
+  })
+}
 
 const cleanText = (val: string) => xss(val, { whiteList: {}, stripIgnoreTag: true, stripIgnoreTagBody: ['script'] })
 
@@ -154,9 +203,9 @@ posts.get('/:slug', async (c) => {
     })
   }
 
-  // Hapus focus_keyword, secondary_keywords, seo_score, word_count dari hasil query ke publik
+  // Sertakan focus_keyword, secondary_keywords, dan word_count untuk konsumsi meta SEO & GEO oleh Hub
   const post = await c.env.DB.prepare(
-    "SELECT p.id, p.slug, p.title, p.excerpt, p.content, p.featured_image, p.featured_image_alt, p.featured_image_caption, p.meta_title, p.meta_description, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.status, p.published_at, p.created_at, p.updated_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = ? AND p.status = 'published'"
+    "SELECT p.id, p.slug, p.title, p.excerpt, p.content, p.featured_image, p.featured_image_alt, p.featured_image_caption, p.meta_title, p.meta_description, p.focus_keyword, p.secondary_keywords, p.word_count, p.reading_time_minutes, p.view_count, p.author_id, p.category_id, p.status, p.published_at, p.created_at, p.updated_at, u.name as author_name, u.avatar_url as author_avatar_url, c.name as category_name, c.slug as category_slug FROM posts p LEFT JOIN users u ON p.author_id = u.id LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = ? AND p.status = 'published'"
   ).bind(slug).first()
 
   if (!post) {
@@ -173,11 +222,21 @@ posts.get('/:slug', async (c) => {
     throw new HTTPException(404, { message: 'Artikel tidak ditemukan.' })
   }
 
+  let parsedSecondary: any[] = []
+  if ((post as any).secondary_keywords) {
+    try {
+      parsedSecondary = typeof (post as any).secondary_keywords === 'string'
+        ? JSON.parse((post as any).secondary_keywords)
+        : (post as any).secondary_keywords
+    } catch { }
+  }
+
   const formatted = {
     ...post,
-    published_at: post.published_at || null,
-    created_at: post.created_at || null,
-    updated_at: post.updated_at || null
+    secondary_keywords: parsedSecondary,
+    published_at: (post as any).published_at || null,
+    created_at: (post as any).created_at || null,
+    updated_at: (post as any).updated_at || null
   }
 
   // Ambil tags untuk post ini
@@ -284,13 +343,37 @@ function extractMediaKeys(content: string | null, featuredImage: string | null):
   return [...new Set(keys)]
 }
 
-async function cleanupOrphanedMedia(c: any, keys: string[]) {
+async function cleanupOrphanedMedia(c: any, keys: string[], userId?: string, isSuperAdmin = false) {
   if (!keys || keys.length === 0) return;
   try {
+    // Sanitasi key dan batasi maksimal 50 per operasi
+    const sanitizedKeys = keys
+      .map(k => typeof k === 'string' ? k.replace(/[^a-zA-Z0-9.\-_]/g, '') : '')
+      .filter(Boolean)
+      .slice(0, 50);
+
+    if (sanitizedKeys.length === 0) return;
+
+    // SECURITY HARDENING (Point #1): Hanya hapus file yang benar-benar tercatat di tabel media
+    // DAN di-upload oleh user bersangkutan (mencegah arbitrary file deletion di R2)
+    const placeholders = sanitizedKeys.map(() => '?').join(',');
+    let query = `SELECT r2_key FROM media WHERE r2_key IN (${placeholders})`;
+    const params: any[] = [...sanitizedKeys];
+
+    if (!isSuperAdmin && userId) {
+      query += ' AND uploaded_by = ?';
+      params.push(userId);
+    }
+
+    const authorizedMedia = await c.env.DB.prepare(query).bind(...params).all();
+    const safeKeysToDelete = ((authorizedMedia.results || []) as any[]).map((r: any) => r.r2_key as string);
+
+    if (safeKeysToDelete.length === 0) return;
+
     const batchStmts = [];
-    for (const key of keys) {
+    for (const key of safeKeysToDelete) {
       await c.env.R2.delete(key);
-      batchStmts.push(c.env.DB.prepare(`DELETE FROM media WHERE r2_key = ?`).bind(key));
+      batchStmts.push(c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(key));
     }
     if (batchStmts.length > 0) {
       await c.env.DB.batch(batchStmts);
@@ -306,26 +389,26 @@ const postSchema = z.object({
   title: z.string().trim().min(1).max(255).transform(stripHtml),
   slug: z.string().trim().min(1).max(255).regex(slugRegex, 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung').transform(stripHtml),
   excerpt: z.string().max(500).optional().transform(v => v ? stripHtml(v) : v),
-  content: z.string().optional().refine((val) => !val || !val.includes('data:image/'), {
+  content: z.string().max(250000, 'Konten artikel maksimal 250.000 karakter').optional().refine((val) => !val || !val.includes('data:image/'), {
     message: "Artikel mengandung gambar copy-paste (Base64). Harap hapus gambar tersebut dan gunakan fitur 'Insert Image' di editor untuk mengunggahnya."
   }),
-  featured_image: z.string().optional(),
-  featured_image_alt: z.string().optional().transform(v => v ? stripHtml(v) : v),
-  featured_image_caption: z.string().optional().transform(v => v ? stripHtml(v) : v),
+  featured_image: z.string().max(500).optional(),
+  featured_image_alt: z.string().max(255).optional().transform(v => v ? stripHtml(v) : v),
+  featured_image_caption: z.string().max(255).optional().transform(v => v ? stripHtml(v) : v),
   meta_title: z.string().max(70).optional().transform(v => v ? stripHtml(v) : v),
   meta_description: z.string().max(160).optional().transform(v => v ? stripHtml(v) : v),
-  focus_keyword: z.string().optional().transform(v => v ? stripHtml(v) : v),
-  secondary_keywords: z.array(z.string().transform(stripHtml)).optional(),
+  focus_keyword: z.string().max(100).optional().transform(v => v ? stripHtml(v) : v),
+  secondary_keywords: z.array(z.string().max(100).transform(stripHtml)).max(20).optional(),
   seo_score: z.number().min(0).max(100).optional(),
   geo_score: z.number().min(0).max(100).optional(),
   geo_original_angle: z.number().min(0).max(1).optional(),
   geo_comprehensive: z.number().min(0).max(1).optional(),
   word_count: z.number().min(0).max(100000).optional(),
   reading_time_minutes: z.number().min(0).max(1000).optional(),
-  category_id: z.string().optional(),
+  category_id: z.string().max(100).optional(),
   status: z.enum(['draft', 'published']).default('draft'),
-  tag_ids: z.array(z.string()).max(50, 'Maksimal 50 tag per artikel.').optional(),
-  session_media_keys: z.array(z.string()).optional()
+  tag_ids: z.array(z.string().max(100)).max(50, 'Maksimal 50 tag per artikel.').optional(),
+  session_media_keys: z.array(z.string().max(255).regex(/^[a-zA-Z0-9.\-_]+$/, 'Format key media tidak valid')).max(50).optional()
 }).superRefine((data, ctx) => {
   if (data.status === 'published') {
     const rawContentLength = data.content ? stripHtml(data.content).length : 0;
@@ -462,8 +545,8 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
   const user = c.get('user')
   const body = c.req.valid('json')
 
-  // Sanitasi HTML (Stored XSS Protection) dengan dukungan Iframe untuk Embed dan Style
-  const cleanContent = body.content ? xss(body.content, { whiteList: customWhiteList }) : null
+  // Sanitasi HTML (Stored XSS Protection) dengan allowlist host iframe terpercaya (Audit #3)
+  const cleanContent = body.content ? sanitizeRichContent(body.content) : null
 
   const id = crypto.randomUUID()
   const publishedAt = body.status === 'published' ? new Date().toISOString() : null
@@ -507,7 +590,7 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
     const usedKeys = extractMediaKeys(cleanContent, body.featured_image || null);
     const sessionKeys = body.session_media_keys || [];
     const orphanedKeys = sessionKeys.filter((k: string) => !usedKeys.includes(k));
-    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, orphanedKeys));
+    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, orphanedKeys, user.id, user.role === 'super_admin'));
     c.executionCtx.waitUntil(invalidatePostListAndCategoryCaches(c.env.KV));
 
     return c.json({ message: 'Artikel berhasil dibuat.', id })
@@ -534,8 +617,8 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
     }
   }
 
-  // Sanitasi HTML (Stored XSS Protection) dengan dukungan Iframe untuk Embed dan Style
-  const cleanContent = body.content ? xss(body.content, { whiteList: customWhiteList }) : null
+  // Sanitasi HTML (Stored XSS Protection) dengan allowlist host iframe terpercaya (Audit #3)
+  const cleanContent = body.content ? sanitizeRichContent(body.content) : null
   const publishedAt = body.status === 'published' ? new Date().toISOString() : null
 
   if (body.category_id) {
@@ -596,7 +679,7 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
     const removedOldKeys = oldKeys.filter((k: string) => !newKeys.includes(k));
     
     const totalOrphanedKeys = [...new Set([...sessionOrphaned, ...removedOldKeys])];
-    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, totalOrphanedKeys));
+    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, totalOrphanedKeys, user.id, user.role === 'super_admin'));
 
     // Invalidasi cache KV
     if (existing && existing.slug) {
@@ -635,7 +718,7 @@ posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_w
 
   // Garbage Collection saat artikel dihapus permanen
   const oldKeys = extractMediaKeys(existing.content as string, existing.featured_image as string);
-  c.executionCtx.waitUntil(cleanupOrphanedMedia(c, oldKeys));
+  c.executionCtx.waitUntil(cleanupOrphanedMedia(c, oldKeys, existing.author_id as string, user.role === 'super_admin'));
 
   if (existing.slug) {
     c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))

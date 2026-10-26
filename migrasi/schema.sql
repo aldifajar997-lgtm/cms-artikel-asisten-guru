@@ -21,6 +21,7 @@ CREATE TABLE users (
     social_instagram TEXT,
     social_facebook TEXT,
     social_tiktok TEXT,
+    phone_number TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

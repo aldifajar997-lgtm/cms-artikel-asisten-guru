@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-brand-teal: #0D5B52;
+  --color-brand-teal-light: #167e72;
+  --color-brand-teal-dark: #073832;
+  --color-brand-mint: #3D9E8F;
+  --color-brand-mint-light: #59bcae;
+  --color-brand-mint-dark: #27695f;
+  
+  --font-sans: "Manrope", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Custom premium styles for Swiss-Minimalist look (Asisten Guru Hub Theme) */
+body {
+  font-family: var(--font-sans);
+  background-color: #f5f5f4; /* stone-50 for eye comfort */
+  color: #1c1917; /* stone-900 */
+  overflow-x: hidden;
+}
+
+/* Glassmorphism card backdrops */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-effect-dark {
+  background: rgba(13, 91, 82, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Soft luxury shadow */
+.card-shadow {
+  box-shadow: 0 4px 30px rgba(13, 91, 82, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.card-shadow-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-shadow-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 40px rgba(13, 91, 82, 0.08), 0 1px 5px rgba(13, 91, 82, 0.04);
+}
+
+/* Custom scrollbar for modern subtle appearance */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d6d3d1; /* stone-300 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0D5B52; /* brand-teal */
+}
+
+/* SunEditor Minimal overrides for product description */
+.sun-editor {
+  border-color: #e7e5e4 !important; /* stone-200 */
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+  font-family: var(--font-sans) !important;
+}
+
+.sun-editor .se-toolbar {
+  background-color: #fafaf9 !important; /* stone-50 */
+  border-bottom: 1px solid #e7e5e4 !important;
+  padding: 4px 6px !important;
+}
+
+.sun-editor .se-wrapper {
+  background-color: #ffffff !important;
+}
+
+/* Animasi Produk Unggulan Etalase Toko */
+@keyframes jiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-1.5deg) scale(1.01); }
+  75% { transform: rotate(1.5deg) scale(1.01); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 15px rgba(20, 184, 166, 0.4), inset 0 0 8px rgba(20, 184, 166, 0.2); 
+  }
+  50% { 
+    box-shadow: 0 0 25px rgba(20, 184, 166, 0.8), inset 0 0 12px rgba(20, 184, 166, 0.4); 
+  }
+}
+
+@keyframes store-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+}
+
+.anim-featured-jiggle {
+  animation: jiggle 2.5s infinite ease-in-out;
+}
+
+.anim-featured-glow {
+  animation: glow-pulse 2s infinite ease-in-out;
+}
+
+.anim-featured-pulse {
+  animation: store-pulse 2s infinite ease-in-out;
+}
+
+

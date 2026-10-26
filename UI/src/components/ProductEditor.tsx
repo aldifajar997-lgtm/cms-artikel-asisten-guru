@@ -9,7 +9,11 @@ import {
   Loader2,
   FileBox,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Lock,
+  Download,
+  Check,
+  ShieldCheck
 } from 'lucide-react';
 import SunEditor from 'suneditor-react';
 import 'suneditor/dist/css/suneditor.min.css';
@@ -49,13 +53,13 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
   onBack,
   setHasUnsavedChanges,
 }) => {
-  const { warning, error: showError, info } = useToast();
+  const { success, warning, error: showError, info } = useToast();
   const { show: showConfirm } = useConfirm();
   const isArchived = product.status === 'archived';
   
   // Form states
   const [title, setTitle] = useState(product.title || '');
-  const [slug, setSlug] = useState(product.slug || '');
+  const [slug, setSlug] = useState(product.slug || generateSlug(product.title || ''));
   const [description, setDescription] = useState(product.description || '');
   const [price, setPrice] = useState<string>(product.price.toString());
   const [originalPrice, setOriginalPrice] = useState<string>(product.original_price ? product.original_price.toString() : '');
@@ -86,7 +90,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
 
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787/api';
+  const baseUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api');
 
   // Deteksi perubahan belum disimpan
   useEffect(() => {
@@ -141,9 +145,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await api.post('/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await api.post('/media', formData);
 
       if (response.data?.result?.[0]?.url) {
         const url = response.data.result[0].url;
@@ -162,8 +164,8 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1 * 1024 * 1024) {
-      warning('Ukuran gambar maksimal adalah 1MB.');
+    if (file.size > 3 * 1024 * 1024) {
+      warning('Ukuran gambar maksimal adalah 3MB.');
       if (detailInputRefs[index - 1].current) detailInputRefs[index - 1].current!.value = '';
       return;
     }
@@ -172,10 +174,9 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('type', 'content');
       
-      const response = await api.post('/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await api.post('/media', formData);
 
       if (response.data?.result?.[0]?.url) {
         const url = response.data.result[0].url;
@@ -198,6 +199,12 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      warning('Format berkas tidak diizinkan. Seluruh dokumen & materi modul wajib dikemas dalam format arsip .zip.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     if (file.size > 50 * 1024 * 1024) {
       warning('Ukuran file maksimal adalah 50MB.');
       return;
@@ -208,9 +215,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await api.post('/products/upload-file', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await api.post('/products/upload-file', formData);
 
       if (response.data?.r2_key) {
         setFileR2Key(response.data.r2_key);
@@ -221,6 +226,68 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       setIsUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  // Unduh Template PANDUAN_PRODUK.txt Resmi Sesuai SOP Kurasi
+  const handleDownloadReadmeTemplate = () => {
+    const templateText = `==================================================================
+PANDUAN PENGGUNAAN & DAFTAR ISI PRODUK DIGITAL
+Platform Marketplace Asisten Guru (asisten-guru.id)
+==================================================================
+
+1. INFORMASI PRODUK
+------------------------------------------------------------------
+Nama Produk : ${title.trim() || '[Tuliskan Nama Produk Anda]'}
+Mata Pelajaran : [Contoh: Bahasa Indonesia / Matematika / IPA]
+Jenjang / Fase / Kelas : [Contoh: Fase D - Kelas 7 SMP]
+Kurikulum : Kurikulum Merdeka
+Nama Toko / Kreator : [Tuliskan Nama Anda atau Nama Toko Anda]
+
+2. DAFTAR BERKAS DI DALAM PAKET INI
+------------------------------------------------------------------
+Silakan susun berkas Anda ke dalam subfolder yang rapi, contoh:
+- /01-Modul-Ajar/ : Dokumen modul ajar siap cetak (.pdf) dan siap edit (.docx)
+- /02-LKPD/ : Lembar Kerja Peserta Didik (.pdf & .docx)
+- /03-Asesmen/ : Kisi-kisi soal, rubrik penilaian, dan instrumen asesmen (.docx)
+- /04-Media-Ajar/ : Slide presentasi (.pptx / tautan Canva)
+
+3. TAUTAN EKSTERNAL (CANVA / GOOGLE DRIVE / APLIKASI MANDIRI) - JIKA ADA
+------------------------------------------------------------------
+Jika produk Anda menggunakan materi berbasis Cloud atau Aplikasi Software
+(misal: Canva Template, Google Drive, Aplikasi Android APK, atau Web App),
+wajib sebutkan tautannya secara transparan di bawah ini agar lolos kurasi:
+
+[OPSI A: UNTUK MATERI CANVA / GOOGLE DRIVE]
+Tautan   : [Tempel Tautan Canva / Google Drive di Sini]
+Fungsi   : Desain interaktif / Video pembelajaran / Bank Soal
+Status   : Wajib akses publik (Tanpa perlu izin/login privat)
+
+[OPSI B: UNTUK APLIKASI SOFTWARE / APK ANDROID / SERVER MANDIRI]
+Nama App : [Nama Aplikasi & Versi, misal: Aplikasi CBT Guru v1.2]
+Tautan   : [Tempel Tautan Unduh Langsung / Play Store / Web App di Sini]
+Platform : [Android / Windows / Web Browser]
+Fungsi   : [Jelaskan apa fungsi aplikasi ini untuk guru/siswa]
+Akun Uji : [Username/Password/Lisensi demo jika butuh login untuk kurator]
+Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
+           Di dalam ZIP wajib disertakan buku panduan instalasi (.pdf).
+
+4. KETENTUAN PENGGUNAAN & LISENSI
+------------------------------------------------------------------
+- Dokumen ini ditujukan untuk kebutuhan pembelajaran guru dan siswa di kelas.
+- Dilarang menjual kembali materi ini atau membagikannya secara gratis di media
+  sosial tanpa izin tertulis dari kreator resmi.
+==================================================================`;
+
+    const blob = new Blob([templateText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'PANDUAN_PRODUK.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    success('Template PANDUAN_PRODUK.txt berhasil diunduh! Masukkan file ini ke dalam arsip .zip Anda.');
   };
 
   const triggerSave = async (targetStatus: ProductStatus = status) => {
@@ -253,7 +320,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
       }
     }
 
-    let finalSlug = slug.trim() || generateSlug(title);
+    let finalSlug = generateSlug(title) || slug.trim() || 'produk';
     
     setIsSaving(true);
     const prevStatus = status;
@@ -376,10 +443,10 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
                 type="text"
                 value={title}
                 onChange={(e) => {
-                  setTitle(e.target.value);
-                  if (!product.id || product.id.startsWith('prod-')) handleAutoSlug();
+                  const val = e.target.value;
+                  setTitle(val);
+                  setSlug(generateSlug(val));
                 }}
-                onBlur={handleAutoSlug}
                 placeholder="Judul Produk Baru..."
                 disabled={isArchived}
                 className={`w-full text-3xl sm:text-4xl font-extrabold text-slate-900 border-none outline-none placeholder:text-slate-200 bg-transparent focus:ring-0 leading-tight ${isArchived ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -400,13 +467,9 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
                 <div className="h-4 w-px bg-slate-200" />
 
-                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-                  <span>/{slug || 'slug-produk'}</span>
-                  {!isArchived && (
-                    <button onClick={handleAutoSlug} className="p-1 hover:text-teal-600 rounded transition-colors">
-                      <RefreshCw className="w-3 h-3" />
-                    </button>
-                  )}
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono bg-slate-100/80 px-2.5 py-1 rounded-lg border border-slate-200 select-none cursor-not-allowed" title="Slug produk dikunci otomatis dari judul produk">
+                  <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span>/{slug || generateSlug(title) || 'slug-produk'}</span>
                 </div>
 
                 <div className="h-4 w-px bg-slate-200" />
@@ -592,7 +655,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
             <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4 mb-8">
               <h3 className="text-sm font-bold text-slate-800">File Unduhan Digital <span className="text-rose-500">*</span></h3>
               
-              {!fileR2Key ? (
+                {!fileR2Key ? (
                 <div
                   onClick={() => !isUploadingFile && !isArchived && fileInputRef.current?.click()}
                   className={`w-full p-8 border-2 border-dashed border-blue-200 rounded-xl bg-white flex flex-col items-center justify-center transition-colors ${isArchived ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-blue-50'}`}
@@ -602,8 +665,8 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
                   ) : (
                     <>
                       <FileBox className="w-10 h-10 text-blue-400 mb-3" />
-                      <p className="text-sm font-bold text-slate-700 text-center">{isArchived ? 'Tidak ada file' : 'Pilih file produk digital (.zip, .pdf)'}</p>
-                      {!isArchived && <p className="text-xs text-slate-500 mt-1.5">Maks. 50MB. File ini akan diberikan ke pembeli setelah pembayaran.</p>}
+                      <p className="text-sm font-bold text-slate-700 text-center">{isArchived ? 'Tidak ada file' : 'Pilih berkas produk digital (.ZIP wajib)'}</p>
+                      {!isArchived && <p className="text-xs text-slate-500 mt-1.5">Maks. 50MB. Seluruh dokumen & materi modul wajib dikemas dalam format .zip.</p>}
                     </>
                   )}
                 </div>
@@ -612,13 +675,13 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
                   <div className="flex items-center gap-3 min-w-0">
                     <CheckCircle2 className="w-6 h-6 text-teal-600 shrink-0" />
                     <span className="text-sm font-bold text-teal-800 truncate" title={fileR2Key}>
-                      {isArchived ? 'File terlindungi (read-only)' : `File Siap! (${fileR2Key})`}
+                      {isArchived ? 'File terlindungi (read-only)' : `Arsip .ZIP Siap! (${fileR2Key})`}
                     </span>
                   </div>
                   {!isArchived && (
                     <button
                       onClick={() => setFileR2Key(null)}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700 shrink-0 px-3 py-1.5 bg-rose-50 rounded-lg"
+                      className="text-xs font-bold text-rose-600 hover:text-rose-700 shrink-0 px-3 py-1.5 bg-rose-50 rounded-lg cursor-pointer"
                     >
                       Hapus File
                     </button>
@@ -629,9 +692,48 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileUpload}
-                accept=".zip,.rar,.pdf"
+                accept=".zip,application/zip,application/x-zip-compressed"
                 className="hidden"
               />
+
+              {/* Box SOP Kurasi & Tombol Unduh Template README */}
+              <div className="p-4 rounded-2xl bg-teal-50/70 border border-teal-200/80 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span className="text-xs font-bold text-slate-800">
+                      SOP & Syarat Lolos Kurasi Produk Digital
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadReadmeTemplate}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-teal-100 text-teal-800 text-[11px] font-bold rounded-xl border border-teal-200 shadow-xs transition cursor-pointer self-start sm:self-auto"
+                  >
+                    <Download className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Unduh Template PANDUAN_PRODUK.txt</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px] text-slate-600">
+                  <div className="flex items-start gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Wajib ada README.txt:</strong> Jelaskan isi paket, panduan penggunaan, dan rincian tautan di dalam arsip ZIP.</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Format Editable:</strong> Sertakan format yang bisa diedit (.docx/.pptx) atau tautan template Canva selain PDF.</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Tautan Akses Publik:</strong> Jika ada link Canva/GDrive, pastikan hak akses sudah dibuka (View/Duplicate) tanpa perlu izin.</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Anti-Phishing & Domain Asli:</strong> Dilarang menggunakan pemendek link (bit.ly/s.id) dan wajib bebas dari skrip terlarang.</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
@@ -681,7 +783,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold text-slate-800 leading-tight">File Digital</p>
                   <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                    {fileR2Key ? 'File siap dijual.' : 'Wajib mengunggah file .zip/.pdf.'}
+                    {fileR2Key ? 'Arsip .zip siap dijual.' : 'Wajib mengunggah berkas materi .zip.'}
                   </p>
                 </div>
               </div>

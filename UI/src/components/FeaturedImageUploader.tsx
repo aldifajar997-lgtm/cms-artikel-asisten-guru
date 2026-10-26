@@ -41,9 +41,7 @@ export const FeaturedImageUploader: React.FC<FeaturedImageUploaderProps> = ({
       formData.append('file', file);
       formData.append('type', 'featured'); // mark as featured image
 
-      const response = await api.post('/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await api.post('/media', formData);
 
       if (response.data?.result?.[0]?.url) {
         let uploadedUrl = response.data.result[0].url;

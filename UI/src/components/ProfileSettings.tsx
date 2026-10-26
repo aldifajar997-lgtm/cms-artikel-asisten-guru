@@ -93,10 +93,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         const data = new FormData();
         data.append('avatar', avatarFile);
 
-        // Axios butuh kita secara eksplisit mendeklarasikan multipart agar menimpa default application/json
-        const res = await api.post('/users/me/avatar', data, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
+        const res = await api.post('/users/me/avatar', data);
 
         // Biarkan response dari server (relative URL) yang dikirim kembali ke PUT /users/me
         // agar backend tidak kebingungan dan menganggap URL berubah lalu menghapusnya
@@ -110,23 +107,21 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         const data = new FormData();
         data.append('cover', coverFile);
 
-        const res = await api.post('/users/me/cover', data, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
+        const res = await api.post('/users/me/cover', data);
 
         finalCoverUrl = res.data.cover_url;
       }
 
       // Pastikan kita hanya mengirimkan URL relatif ke backend
       if (finalAvatarUrl && finalAvatarUrl.startsWith('http')) {
-        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
+        const baseUrl = api.defaults.baseURL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api');
         const origin = baseUrl.replace('/api', '');
         if (finalAvatarUrl.startsWith(origin)) {
           finalAvatarUrl = finalAvatarUrl.substring(origin.length);
         }
       }
       if (finalCoverUrl && finalCoverUrl.startsWith('http')) {
-        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
+        const baseUrl = api.defaults.baseURL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api');
         const origin = baseUrl.replace('/api', '');
         if (finalCoverUrl.startsWith(origin)) {
           finalCoverUrl = finalCoverUrl.substring(origin.length);
@@ -205,7 +200,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-5 text-center sm:text-left">
           <img
-            src={previewUrl || (formData.avatarUrl ? (formData.avatarUrl.startsWith('http') ? formData.avatarUrl : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${formData.avatarUrl}`) : null) || 'https://ui-avatars.com/api/?name=' + formData.name}
+            src={previewUrl || (formData.avatarUrl ? (formData.avatarUrl.startsWith('http') ? formData.avatarUrl : `${(api.defaults.baseURL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api')).replace('/api', '')}${formData.avatarUrl}`) : null) || 'https://ui-avatars.com/api/?name=' + formData.name}
             alt={formData.name}
             referrerPolicy="no-referrer"
             className="w-20 h-20 rounded-2xl object-cover ring-4 ring-teal-500/10 shadow-sm"
@@ -506,7 +501,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                   {(coverPreviewUrl || formData.coverUrl) && (
                     <div className="flex flex-col items-center gap-2">
                       <img
-                        src={coverPreviewUrl || (formData.coverUrl ? (formData.coverUrl.startsWith('http') ? formData.coverUrl : `${(api.defaults.baseURL || 'http://localhost:8787/api').replace('/api', '')}${formData.coverUrl}`) : '')}
+                        src={coverPreviewUrl || (formData.coverUrl ? (formData.coverUrl.startsWith('http') ? formData.coverUrl : `${(api.defaults.baseURL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api')).replace('/api', '')}${formData.coverUrl}`) : '')}
                         alt="Preview Sampul"
                         className="w-48 h-16 object-cover rounded-xl border border-slate-200 shadow-sm"
                       />

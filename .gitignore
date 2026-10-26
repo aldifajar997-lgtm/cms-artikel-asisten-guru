@@ -43,3 +43,9 @@ wrangler.jsonc
 # tests
 test/
 test-api.mjs
+scratch/
+temp_*.svg
+test_*.svg
+
+# graphify
+graphify-out/

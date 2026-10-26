@@ -94,6 +94,7 @@ export interface UserAdmin {
   email: string;
   name: string | null;
   avatar_url: string | null;
+  phone_number?: string | null;
   role?: string;
   is_active: number;
   created_at: string;
@@ -121,7 +122,7 @@ export interface ArticleStats {
   draftCount: number;
 }
 
-export type ProductStatus = 'draft' | 'published' | 'archived';
+export type ProductStatus = 'draft' | 'pending_review' | 'published' | 'needs_revision' | 'rejected' | 'archived';
 
 export interface Product {
   id: string;
@@ -149,7 +150,38 @@ export interface Product {
   meta_description?: string | null;
   view_count?: number;
   sales_count?: number;
+  author_id?: string;
+  author_name?: string;
+  author_email?: string;
+  review_notes?: string | null;
+  submitted_for_review_at?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
   created_at: string;
+}
+
+export interface SellerApplicant {
+  id: string;
+  email: string;
+  name: string | null;
+  avatar_url: string | null;
+  phone_number?: string | null;
+  seller_status: 'pending' | 'approved' | 'rejected' | 'suspended';
+  seller_applied_at: string | null;
+  seller_approved_at: string | null;
+  seller_rejection_reason: string | null;
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_holder: string | null;
+  bio?: string | null;
+  created_at: string;
+  seller_sample_photos?: string[] | string | null;
+  personal_address?: string | null;
+  gender?: string | null;
+  birth_date?: string | null;
+  store_name?: string | null;
+  store_description?: string | null;
+  store_address?: string | null;
 }
 
 export interface StatusDistributionItem {

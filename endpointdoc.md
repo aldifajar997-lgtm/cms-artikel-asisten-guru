@@ -109,10 +109,14 @@ Semua pesan error ke klien menggunakan bahasa yang ramah pengguna; detail teknis
 | Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
 | `/internal/:id/price` | `GET` | 🔐 S2S (`type: price_check`) | Harga real-time + `price_lock_token` (berlaku 90 menit). `product_id` di JWT wajib = `:id`. |
-| `/internal/:id/sale` | `POST` | 🔐 S2S (`type: sale_trigger`) | Catat penjualan ke ledger. Wajib: `hub_transaction_id`, `gross_amount` (harus = harga terkunci), `price_lock_token`, `paid_at` (≤7 hari lalu). Idempoten per `hub_transaction_id` (72 jam). |
+| `/internal/:id/sale` | `POST` | 🔐 S2S (`type: sale_trigger`) | Catat penjualan ke ledger. Wajib: `hub_transaction_id`, `gross_amount` (harus = harga terkunci), `price_lock_token`, `paid_at` (≤7 hari lalu). Opsional: `payment_method` (metode bayar dari Midtrans/Wallet). Idempoten per `hub_transaction_id` (72 jam). |
 | `/internal/:id/download` | `POST` | 🔐 S2S (`type: download_request`) | Stream file produk dengan `Content-Disposition`. Rate limit 5000/menit. |
-| `/internal-reviews` | `POST` | 🔐 S2S (JWT RS256 / Secret S2S) | Simpan/ubah ulasan `{productId, accountId, rating 1-5, comment ≤500}`; agregat rating produk diperbarui atomik. Verifikasi via JWT RS256 Hub, `S2S_INTERNAL_SECRET`, atau bearer key. |
-| `/internal-reviews/my` | `GET` | 🔐 S2S (JWT RS256 / Secret S2S) | Ulasan milik akun tertentu: `?productId=&accountId=`. Verifikasi via JWT RS256 Hub, `S2S_INTERNAL_SECRET`, atau bearer key. |
+| `/internal-reviews` | `POST` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Simpan/ubah ulasan `{productId, accountId, rating 1-5, comment ≤500}`; agregat rating produk diperbarui atomik. Verifikasi pembelian dilakukan di Hub. |
+| `/internal-reviews/my` | `GET` | 🔐 S2S (Bearer kunci Hub) | **Belum terdokumentasi sebelumnya.** Ulasan milik akun tertentu: `?productId=&accountId=`. |
+| `/internal/order/complete` | `POST` | 🔐 S2S (JWT RS256 / Secret S2S) | **Baru.** Konfirmasi pesanan selesai oleh pembeli (`{ hub_transaction_id, buyer_hub_id? }`). Mempercepat rilis dana dari "Saldo Tertahan" langsung ke "Saldo Aktif" seller seketika tanpa menunggu sisa 3 hari. Rate limit 200/menit. |
+| `/internal/order/complaint` | `POST` | 🔐 S2S (JWT RS256 / Secret S2S) | **Baru.** Tiket komplain pembeli (`{ hub_transaction_id, buyer_hub_id, category, reason, evidence_urls? }`). Membekukan transaksi (`dispute_status = 'complained'`) dan menahan dana seller untuk verifikasi/investigasi. Rate limit 100/menit. |
+| `/internal/order/complaint/resolve` | `POST` | 🔐 S2S (JWT RS256 / Secret S2S) | **Baru.** Selesaikan sengketa order dari Hub (`{ hub_transaction_id, action: 'refund' \| 'release', admin_notes? }`). `refund` = batalkan transaksi seller; `release` = tolak komplain & rilis dana ke Saldo Aktif seller. Rate limit 100/menit. |
+| `/internal/order/:hub_transaction_id/complaint` | `GET` | 🔐 S2S (JWT RS256 / Secret S2S) | **Baru.** Ambil detail komplain & tanggapan terbaru dari seller di CMS untuk sinkronisasi Hub. Rate limit 200/menit. |
 
 ### Administratif (CMS)
 | Endpoint | Method | Proteksi | Keterangan |
@@ -133,7 +137,7 @@ Semua endpoint wajib login; data seller selalu difilter dengan `user.id` dari to
 | Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
 | `/summary` | `GET` | 🔴 Login | Ringkasan pendapatan seller (gross, potongan admin, net, saldo). Rate limit 30/menit. |
-| `/transactions` | `GET` | 🔴 Login | Riwayat transaksi penjualan seller (paginasi). |
+| `/transactions` | `GET` | 🔴 Login | Riwayat transaksi penjualan seller (paginasi). Memuat field `payment_method` (metode pembayaran pembeli). |
 | `/products` | `GET` | 🔴 Login | Performa pendapatan per produk milik seller. |
 | `/price-history/:product_id` | `GET` | 🔴 Login | Riwayat harga satu produk (hanya pemilik produk / admin). |
 | `/withdrawals` | `GET` | 🔴 Login | Riwayat pengajuan penarikan dana seller. |
@@ -144,6 +148,10 @@ Semua endpoint wajib login; data seller selalu difilter dengan `user.id` dari to
 | `/admin/fee-config` | `POST` | 🛡️ `view_dashboard` (admin) | Tetapkan konfigurasi potongan baru (`fee_bps`, `min_fee`, `max_fee`, `effective_from`). Rate limit 5/menit. |
 | `/admin/withdrawals` | `GET` | 🛡️ `view_dashboard` (admin) | Daftar seluruh pengajuan penarikan. |
 | `/admin/withdrawals/:id` | `PUT` | 🛡️ `view_dashboard` (admin) | Setujui/tolak/tandai selesai pengajuan penarikan. |
+| `/complaints` | `GET` | 🔴 Login (Seller) | **Baru.** Daftar tiket komplain pembeli atas produk seller yang login (`?status=&limit=&offset=`). |
+| `/complaints/:id/respond` | `PUT` | 🔴 Login (Seller) | **Baru.** Kirim tanggapan/klarifikasi seller & tautan perbaikan file (`{ seller_response, seller_replacement_url? }`). Sinkron S2S ke Hub. Rate limit 10/menit. |
+| `/admin/complaints` | `GET` | 🛡️ Super Admin | **Baru.** Seluruh komplain pembeli di platform untuk investigasi & mediasi (`?status=&limit=&offset=`). |
+| `/admin/complaints/:id/resolve` | `PUT` | 🛡️ Super Admin | **Baru.** Putusan penyelesaian komplain (`{ action: 'refund' \| 'release', admin_notes? }`). `refund` mendebit transaksi seller & mengkreditkan Saldo Akun pembeli di Hub secara sinkron atomik; `release` menolak komplain & merilis dana ke Saldo Aktif seller. Rate limit 20/menit. |
 
 ---
 
@@ -170,8 +178,19 @@ Semua endpoint wajib login; data seller selalu difilter dengan `user.id` dari to
 | Endpoint | Method | Proteksi | Keterangan |
 | :--- | :---: | :--- | :--- |
 | `/api/dashboard/stats` | `GET` | 🛡️ `view_dashboard` | Total artikel, pengguna, media. Rate limit 20/menit. |
-| `/api/dashboard/analytics` | `GET` | 🛡️ `view_dashboard` | **Baru.** Analitik riil terpadu skema artikel, skema produk, tren bulanan kontinu (6 bulan), dan top konten. Rate limit 30/menit. |
 | `/api/trends/suggest` | `GET` | 🔴 Login | **Belum terdokumentasi sebelumnya.** Saran topik/keyword tren untuk penulis. |
+
+---
+
+## 📜 Dokumen Legal (`/api/legal` & `/api/auth/terms`)
+| Endpoint | Method | Proteksi | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `/api/auth/terms/seller` | `GET` | 🟢 Publik | Mengambil Syarat & Ketentuan dan Kebijakan Privasi mitra terbitan aktif dari Edge KV Cache / D1. Rate limit 60/menit. |
+| `/api/legal/admin/documents` | `GET` | 👑 Super Admin | Mengambil daftar seluruh dokumen legal aktif beserta metadata versi dan editor. Rate limit 60/menit. |
+| `/api/legal/admin/documents/:id` | `GET` | 👑 Super Admin | Mengambil naskah lengkap satu dokumen legal untuk dimuat ke editor. Rate limit 60/menit. |
+| `/api/legal/admin/documents/:id` | `PUT` | 👑 Super Admin | Memperbarui dan menerbitkan naskah dokumen legal, mengarsipkan versi lama ke riwayat revisi, dan menginvalidasi KV cache. Rate limit 20/menit. |
+| `/api/legal/admin/documents/:id/revisions` | `GET` | 👑 Super Admin | Mengambil riwayat revisi (audit trail kepatuhan hukum & UU PDP). Rate limit 30/menit. |
+| `/api/legal/admin/documents/:id/rollback/:revId` | `POST` | 👑 Super Admin | Mengembalikan naskah dokumen ke snapshot revisi masa lalu. Rate limit 10/menit. |
 
 ---
 

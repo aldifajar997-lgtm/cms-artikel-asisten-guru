@@ -14,6 +14,9 @@ const ProductList = React.lazy(() => import('./components/ProductList').then(m =
 const ProductEditor = React.lazy(() => import('./components/ProductEditor').then(m => ({ default: m.ProductEditor })));
 const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 const EarningsAdminPanel = React.lazy(() => import('./components/EarningsAdminPanel').then(m => ({ default: m.EarningsAdminPanel })));
+const SellerApprovalList = React.lazy(() => import('./components/SellerApprovalList').then(m => ({ default: m.SellerApprovalList })));
+const LegalSettings = React.lazy(() => import('./components/LegalSettings').then(m => ({ default: m.LegalSettings })));
+const ProductCuration = React.lazy(() => import('./components/ProductCuration').then(m => ({ default: m.ProductCuration })));
 const Login = React.lazy(() => import('./components/Login').then(m => ({ default: m.Login })));
 const ForgotPassword = React.lazy(() => import('./components/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
 const ResetPassword = React.lazy(() => import('./components/ResetPassword').then(m => ({ default: m.ResetPassword })));
@@ -75,6 +78,7 @@ export default function App() {
   const [hasMoreProducts, setHasMoreProducts] = useState<boolean>(false);
   const [productOffset, setProductOffset] = useState<number>(0);
   const [isLoadingMoreProducts, setIsLoadingMoreProducts] = useState<boolean>(false);
+  const [curationTargetProductId, setCurationTargetProductId] = useState<string | null>(null);
 
   const fetchGlobalStats = async () => {
     try {
@@ -210,13 +214,16 @@ export default function App() {
 
   const fetchProfileAndData = async () => {
     // Jalankan semua requests secara paralel untuk meminimalkan waktu "Memuat sesi..."
+    let fetchedUserRole = '';
     const fetchProfileTask = api.get('/users/me').then(profileRes => {
       let finalAvatarUrl = profileRes.data.avatar_url ?? '';
       if (finalAvatarUrl && finalAvatarUrl.startsWith('/api/')) {
-        const baseUrl = api.defaults.baseURL || 'http://localhost:8787/api';
-        const origin = baseUrl.replace(/\/api\/?$/, '');
+        const baseUrl = api.defaults.baseURL || (import.meta.env.PROD ? '/api' : 'http://localhost:8787/api');
+        const origin = baseUrl.startsWith('http') ? baseUrl.replace(/\/api\/?$/, '') : '';
         finalAvatarUrl = `${origin}${finalAvatarUrl}`;
       }
+
+      fetchedUserRole = profileRes.data.role ?? '';
 
       setProfile(prev => ({
         ...prev,
@@ -274,9 +281,19 @@ export default function App() {
       fetchCategoriesTask,
       fetchTagsTask,
       fetchGlobalStats(),
-      fetchArticlesList(currentFilters),
-      fetchProductsList()
+      fetchArticlesList(currentFilters)
     ]);
+
+    // Hanya panggil daftar produk jika pengguna memiliki peran seller, editor, atau admin
+    const userRoleLower = (fetchedUserRole || profile.role || '').toLowerCase();
+    const canAccessProducts = userRoleLower.includes('super admin') || 
+                              userRoleLower.includes('super_admin') || 
+                              userRoleLower.includes('admin') || 
+                              userRoleLower.includes('editor') || 
+                              userRoleLower.includes('seller');
+    if (canAccessProducts) {
+      await fetchProductsList();
+    }
   };
 
 
@@ -666,6 +683,44 @@ export default function App() {
     }
   };
 
+  const handleApproveProductCuration = async (id: string) => {
+    const confirmed = await showConfirm(
+      'Setujui & Publikasikan Produk',
+      'Produk ini akan disetujui dan langsung tampil di etalase marketplace utama. Lanjutkan?'
+    );
+    if (!confirmed) return;
+    try {
+      await api.put(`/products/admin/${id}/approve`);
+      success('Produk berhasil disetujui dan diterbitkan!');
+      fetchProductsList();
+    } catch (err: any) {
+      console.error('Gagal menyetujui produk:', err);
+      showError('Gagal menyetujui produk. ' + handleApiError(err));
+    }
+  };
+
+  const handleRequestProductRevision = async (id: string, notes: string) => {
+    try {
+      await api.put(`/products/admin/${id}/request-revision`, { notes });
+      success('Permintaan revisi telah dikirim ke kreator produk.');
+      fetchProductsList();
+    } catch (err: any) {
+      console.error('Gagal mengirim permintaan revisi:', err);
+      showError('Gagal meminta revisi. ' + handleApiError(err));
+    }
+  };
+
+  const handleRejectProductCuration = async (id: string, notes: string) => {
+    try {
+      await api.put(`/products/admin/${id}/reject`, { notes });
+      success('Produk telah ditolak.');
+      fetchProductsList();
+    } catch (err: any) {
+      console.error('Gagal menolak produk:', err);
+      showError('Gagal menolak produk. ' + handleApiError(err));
+    }
+  };
+
   // Handle Category operations
   const handleAddCategory = async (newCat: Category) => {
     try {
@@ -799,6 +854,10 @@ export default function App() {
     );
   }
 
+  const userRoles = profile.role ? profile.role.split(',').map(r => r.trim().toLowerCase()) : [];
+  const isSuperAdmin = userRoles.includes('super admin') || userRoles.includes('super_admin');
+  const isSuperAdminOrAdmin = isSuperAdmin || userRoles.includes('admin');
+
   return (
     <div className="flex flex-col md:flex-row h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
       {/* Sidebar Navigation */}
@@ -812,6 +871,9 @@ export default function App() {
           handleLogout();
         }}
         onSelectTab={async (tab) => {
+          if (tab === 'kurasi-produk' && !isSuperAdminOrAdmin) {
+            return;
+          }
           const isEditor = activeTab === 'buat-artikel' || activeTab === 'buat-produk';
           const isChangingTab = tab !== activeTab;
           if (isEditor && isChangingTab && hasUnsavedChanges) {
@@ -835,6 +897,7 @@ export default function App() {
         }}
         profile={profile}
         articleCount={globalStats.totalArticles}
+        curationCount={products.filter(p => p.status === 'pending_review').length}
       />
 
       {/* Main Workspace based on Active Tab */}
@@ -949,7 +1012,7 @@ export default function App() {
                       />
                     )}
 
-                    {activeTab === 'pengaturan-user' && (
+                    {activeTab === 'pengaturan-user' && isSuperAdmin && (
                       <UserSettings />
                     )}
 
@@ -957,12 +1020,27 @@ export default function App() {
                       <SiteSettings />
                     )}
 
-                    {activeTab === 'pengaturan-pendapatan' && (
+                    {activeTab === 'pengaturan-pendapatan' && isSuperAdmin && (
                       <EarningsAdminPanel />
+                    )}
+
+                    {activeTab === 'persetujuan-seller' && isSuperAdmin && (
+                      <SellerApprovalList />
+                    )}
+
+                    {activeTab === 'pengaturan-legal' && isSuperAdmin && (
+                      <LegalSettings />
                     )}
 
                     {activeTab === 'glosarium' && (
                       <Glosarium />
+                    )}
+
+                    {activeTab === 'kurasi-produk' && isSuperAdminOrAdmin && (
+                      <ProductCuration
+                        onProductCurated={fetchProductsList}
+                        initialProductId={curationTargetProductId}
+                      />
                     )}
 
                     {activeTab === 'list-produk' && (
@@ -976,6 +1054,13 @@ export default function App() {
                         onNewProduct={handleNewProduct}
                         onDeleteProduct={handleDeleteProduct}
                         onArchiveProduct={handleArchiveProduct}
+                        onApproveProduct={handleApproveProductCuration}
+                        onRequestRevisionProduct={handleRequestProductRevision}
+                        onRejectProduct={handleRejectProductCuration}
+                        onOpenCurationTab={(productId) => {
+                          setCurationTargetProductId(productId || null);
+                          setActiveTab('kurasi-produk');
+                        }}
                       />
                     )}
                   </div>

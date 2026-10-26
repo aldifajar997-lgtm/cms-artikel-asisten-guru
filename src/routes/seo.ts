@@ -47,7 +47,12 @@ seo.get('/sitemap.xml', async (c) => {
     ).first<{ count: number }>()
 
     const productCount = await c.env.DB.prepare(
-      "SELECT COUNT(*) as count FROM products WHERE status = 'published'"
+      `SELECT COUNT(*) as count 
+       FROM products p 
+       JOIN users u ON p.author_id = u.id 
+       WHERE p.status = 'published' 
+         AND u.is_active = 1 
+         AND (u.seller_status = 'approved' OR u.id = 'super_admin')`
     ).first<{ count: number }>()
 
     const totalPostPages = Math.max(1, Math.ceil((postCount?.count || 0) / SITEMAP_PAGE_SIZE))
@@ -150,7 +155,13 @@ seo.get('/sitemap-products-*', async (c) => {
 
   try {
     const products = await c.env.DB.prepare(
-      "SELECT slug, updated_at, title, cover_image_key, cover_image_alt, detail_image_1_key, detail_image_1_alt, detail_image_2_key, detail_image_2_alt, detail_image_3_key, detail_image_3_alt FROM products WHERE status = 'published' ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+      `SELECT p.slug, p.updated_at, p.title, p.cover_image_key, p.cover_image_alt, p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt, p.detail_image_3_key, p.detail_image_3_alt 
+       FROM products p 
+       JOIN users u ON p.author_id = u.id 
+       WHERE p.status = 'published' 
+         AND u.is_active = 1 
+         AND (u.seller_status = 'approved' OR u.id = 'super_admin') 
+       ORDER BY p.updated_at DESC LIMIT ? OFFSET ?`
     ).bind(SITEMAP_PAGE_SIZE, offset).all()
 
     let productUrls = ''
@@ -217,6 +228,14 @@ seo.get('/sitemap-taxonomy.xml', async (c) => {
       "SELECT DISTINCT u.id FROM users u JOIN posts p ON p.author_id = u.id WHERE p.status = 'published' LIMIT 5000"
     ).all()
 
+    const sellers = await c.env.DB.prepare(
+      `SELECT DISTINCT u.id, u.store_slug 
+       FROM users u 
+       JOIN products p ON p.author_id = u.id 
+       WHERE p.status = 'published' AND u.is_active = 1 AND (u.seller_status = 'approved' OR u.id = 'super_admin') 
+       LIMIT 5000`
+    ).all()
+
     const categoryUrls = categories.results.map(category => {
       if (category.type === 'product') {
         return `
@@ -248,8 +267,18 @@ seo.get('/sitemap-taxonomy.xml', async (c) => {
     <priority>0.6</priority>
   </url>`).join('')
 
+    const sellerUrls = sellers.results.map(seller => {
+      const sellerPath = seller.store_slug ? `${seller.store_slug}` : `toko/penjual/${seller.id}`
+      return `
+  <url>
+    <loc>${frontendUrl}/${sellerPath}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`
+    }).join('')
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${categoryUrls}${tagUrls}${authorUrls}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${categoryUrls}${tagUrls}${authorUrls}${sellerUrls}
 </urlset>`
 
     return c.text(xml, 200, {
@@ -266,6 +295,8 @@ seo.get('/robots.txt', (c) => {
 
   const content = `User-agent: *
 Allow: /api/media/
+Allow: /tos
+Allow: /privacy
 Disallow: /api/
 Allow: /sitemap.xml
 Allow: /sitemap-posts-*.xml

@@ -11,12 +11,16 @@ import { authMiddleware } from '../middlewares/auth'
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 import { getSafeFrontendUrl } from '../utils/url'
 
+import { verifyHubJWT } from '../utils/hub-jwt'
+import { SELLER_TERMS_MARKDOWN } from '../data/seller-terms'
+import { SELLER_PRIVACY_MARKDOWN } from '../data/seller-privacy'
+
 const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 const loginSchema = z.object({
-  email: z.string().email('Format email tidak valid').trim().toLowerCase(),
-  password: z.string().min(1, 'Password tidak boleh kosong'),
-  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
+  email: z.string().email('Format email tidak valid').max(254, 'Email maksimal 254 karakter').trim().toLowerCase(),
+  password: z.string().min(1, 'Password tidak boleh kosong').max(128, 'Password maksimal 128 karakter'),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan').max(4096, 'Token Turnstile tidak valid')
 })
 
 auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), async (c) => {
@@ -256,9 +260,18 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
 
     currentPermissions = roleQuery.results.map(r => r.permission_name).filter(Boolean) as string[]
     const roles = [...new Set(roleQuery.results.map(r => r.role_name).filter(Boolean) as string[])]
-    currentRole = roles.includes('Admin') ? 'Admin' : (roles.includes('Editor') ? 'Editor' : (roles[0] || 'user'))
+    currentRole = roles.includes('Admin') ? 'Admin' : (roles.includes('Editor') ? 'Editor' : (roles.includes('Seller') ? 'seller' : (roles[0] || 'user')))
   } else {
     currentRole = 'super_admin'
+  }
+
+  // Refresh status seller real-time dari database D1
+  let freshSellerStatus = payload.seller_status
+  if (tokenRecord.user_id !== 'super_admin') {
+    const userStatus = await c.env.DB.prepare('SELECT seller_status FROM users WHERE id = ?').bind(tokenRecord.user_id).first<{ seller_status: string }>()
+    if (userStatus) {
+      freshSellerStatus = userStatus.seller_status
+    }
   }
 
   const newPayload = {
@@ -266,6 +279,7 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
     email: payload.email as string,
     role: currentRole,
     permissions: currentPermissions,
+    seller_status: freshSellerStatus,
     jti: crypto.randomUUID()
   }
 
@@ -314,8 +328,8 @@ auth.post('/logout', rateLimit(10, 60, 'logout'), authMiddleware, async (c) => {
 })
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email('Format email tidak valid').trim().toLowerCase(),
-  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
+  email: z.string().email('Format email tidak valid').max(254, 'Email maksimal 254 karakter').trim().toLowerCase(),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan').max(4096, 'Token Turnstile tidak valid')
 })
 
 auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json', forgotPasswordSchema), async (c) => {
@@ -393,9 +407,9 @@ auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json'
 })
 
 const resetPasswordSchema = z.object({
-  token: z.string(),
-  new_password: z.string().min(6, 'Password minimal 6 karakter'),
-  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan')
+  token: z.string().min(1).max(512),
+  new_password: z.string().min(6, 'Password minimal 6 karakter').max(128, 'Password maksimal 128 karakter'),
+  'cf-turnstile-response': z.string().min(1, 'Token Turnstile diperlukan').max(4096, 'Token Turnstile tidak valid')
 })
 
 auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', resetPasswordSchema), async (c) => {
@@ -440,6 +454,346 @@ auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', 
   ).bind(hashedInputToken).run()
 
   return c.json({ message: 'Password berhasil diubah. Silakan login dengan password baru.' })
+})
+
+// --- SYARAT & KETENTUAN KEMITRAAN KREATOR & KEBIJAKAN PRIVASI ---
+auth.get('/terms/seller', rateLimit(60, 60, 'terms_seller'), async (c) => {
+  const cacheKey = 'cache:terms_seller'
+
+  // 1. Coba baca dari Edge KV Cache untuk respons berkecepatan tinggi
+  try {
+    const cached = await c.env.KV.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached, 200, {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      })
+    }
+  } catch (err) {
+    console.error('KV cache read error:', err)
+  }
+
+  // 2. Jika cache miss, ambil dari D1 legal_documents
+  try {
+    const docs = await c.env.DB.prepare(
+      "SELECT id, title, content, version, updated_at FROM legal_documents WHERE id IN ('seller_terms', 'seller_privacy') AND is_published = 1"
+    ).all<{ id: string; title: string; content: string; version: number; updated_at: string }>()
+
+    let termsDoc = (docs.results || []).find(d => d.id === 'seller_terms')
+    let privacyDoc = (docs.results || []).find(d => d.id === 'seller_privacy')
+
+    // Jika belum ter-seed di D1, lakukan auto-seed otomatis
+    if (!termsDoc) {
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO legal_documents (id, title, content, version, is_published, updated_at)
+        VALUES ('seller_terms', 'Syarat dan Ketentuan Program Kemitraan Kreator Asisten Guru', ?, 1, 1, CURRENT_TIMESTAMP)
+      `).bind(SELLER_TERMS_MARKDOWN).run()
+      termsDoc = {
+        id: 'seller_terms',
+        title: 'Syarat dan Ketentuan Program Kemitraan Kreator Asisten Guru',
+        content: SELLER_TERMS_MARKDOWN,
+        version: 1,
+        updated_at: new Date().toISOString()
+      }
+    }
+
+    if (!privacyDoc) {
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO legal_documents (id, title, content, version, is_published, updated_at)
+        VALUES ('seller_privacy', 'Kebijakan Privasi & Perlindungan Data Sensitif Kemitraan Kreator', ?, 1, 1, CURRENT_TIMESTAMP)
+      `).bind(SELLER_PRIVACY_MARKDOWN).run()
+      privacyDoc = {
+        id: 'seller_privacy',
+        title: 'Kebijakan Privasi & Perlindungan Data Sensitif Kemitraan Kreator',
+        content: SELLER_PRIVACY_MARKDOWN,
+        version: 1,
+        updated_at: new Date().toISOString()
+      }
+    }
+
+    const payload = {
+      title: termsDoc.title,
+      markdown: termsDoc.content,
+      terms_version: termsDoc.version,
+      terms_updated_at: termsDoc.updated_at,
+      privacy_title: privacyDoc.title,
+      privacy_markdown: privacyDoc.content,
+      privacy_version: privacyDoc.version,
+      privacy_updated_at: privacyDoc.updated_at
+    }
+
+    // Simpan ke KV Cache dengan TTL 24 jam
+    c.executionCtx.waitUntil(c.env.KV.put(cacheKey, JSON.stringify(payload), { expirationTtl: 86400 }))
+
+    return c.json(payload, 200, {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    })
+  } catch (err) {
+    console.error('Failed to load legal docs from D1, fallback to static:', err)
+    // Fallback darurat jika ada kendala D1
+    return c.json({
+      title: 'Syarat dan Ketentuan Program Kemitraan Kreator Asisten Guru',
+      markdown: SELLER_TERMS_MARKDOWN,
+      privacy_title: 'Kebijakan Privasi & Perlindungan Data Sensitif Kemitraan Kreator',
+      privacy_markdown: SELLER_PRIVACY_MARKDOWN
+    })
+  }
+})
+
+// --- SSO ASISTEN GURU (HUB IDENTITY PROVIDER) ---
+
+auth.get('/sso/hub/init', rateLimit(10, 60, 'sso_hub_init'), async (c) => {
+  const hubUrl = c.env.HUB_URL || 'https://asisten-guru.id'
+  const appId = c.env.HUB_APP_ID || 'mitra-asisten-guru'
+  const state = crypto.randomUUID()
+
+  // ANTI-HIJACKING & ANTI-PHISHING: Strict Host Whitelist
+  // Di server production, HANYA domain resmi ber-HTTPS yang diizinkan.
+  // Localhost dan loopback 127.0.0.1 DILARANG KERAS di server production
+  // guna mencegah Loopback Token Interception & Localhost Hijacking (RFC 8252).
+  const isDevEnv = (c.env as any).ENVIRONMENT === 'development' || (c.env as any).ENVIRONMENT === 'local'
+
+  const ALLOWED_MITRA_HOSTS = [
+    'mitra.asisten-guru.id',
+    'mitra.asisten-guru.my.id',
+    'ui-mitra.pages.dev'
+  ]
+
+  if (isDevEnv) {
+    ALLOWED_MITRA_HOSTS.push('localhost', '127.0.0.1')
+  }
+
+  const rawHostHeader = c.req.header('X-Forwarded-Host') || c.req.header('Host') || ''
+  const hostnameOnly = rawHostHeader.split(':')[0].toLowerCase()
+
+  let safeHost = 'mitra.asisten-guru.id'
+  let safeProto = 'https'
+
+  if (ALLOWED_MITRA_HOSTS.includes(hostnameOnly)) {
+    if (isDevEnv && (hostnameOnly === 'localhost' || hostnameOnly === '127.0.0.1')) {
+      safeHost = rawHostHeader // sertakan port pada local dev (misal localhost:5173)
+      safeProto = (c.req.header('X-Forwarded-Proto') || 'http').toLowerCase()
+    } else {
+      safeHost = hostnameOnly
+      safeProto = 'https'
+    }
+  }
+
+  // Redirect ke root origin domain mitra yang sah karena App.tsx SPA menangani callback di root ('/')
+  const callbackUrl = `${safeProto}://${safeHost}/`
+
+  // Simpan state ke D1 dengan masa berlaku 10 menit
+  await c.env.DB.prepare(`
+    INSERT INTO oauth_states (state, redirect_uri, expires_at)
+    VALUES (?, ?, datetime('now', '+10 minutes'))
+  `).bind(state, callbackUrl).run()
+
+  // Sesuai listener SSO Hub di asisten-guru hub:
+  // Hub membaca params: sso_login=1, app_id, redirect_uri, state
+  const authUrl = `${hubUrl}/?sso_login=1&app_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`
+
+  return c.json({
+    url: authUrl,
+    state,
+    redirect_uri: callbackUrl
+  })
+})
+
+const ssoCallbackSchema = z.object({
+  token: z.string().min(1, 'Token SSO diperlukan'),
+  state: z.string().min(1, 'State autentikasi diperlukan'),
+  terms_accepted: z.boolean().optional()
+})
+
+auth.post('/sso/hub/callback', rateLimit(10, 60, 'sso_hub_callback'), zValidator('json', ssoCallbackSchema), async (c) => {
+  const { token, state } = c.req.valid('json')
+
+  // 1. Validasi & Konsumsi State CSRF secara Atomik (Cegah Race Condition & Replay Attack)
+  const stateRecord = await c.env.DB.prepare(
+    'DELETE FROM oauth_states WHERE state = ? AND expires_at > datetime("now") RETURNING state, redirect_uri'
+  ).bind(state).first<{ state: string; redirect_uri: string }>()
+
+  if (!stateRecord) {
+    throw new HTTPException(400, { message: 'Sesi autentikasi telah berakhir atau tidak valid. Silakan ulangi proses masuk.' })
+  }
+
+  // 2. Verifikasi Token Asimetris RS256 dari Hub
+  let hubPayload: any = null
+  const expectedAppId = c.env.HUB_APP_ID || 'mitra-asisten-guru'
+
+  if (c.env.HUB_PUBLIC_KEY) {
+    hubPayload = await verifyHubJWT(token, c.env.HUB_PUBLIC_KEY, [expectedAppId, 'mitra-seller', 'mitra-asisten-guru'])
+  } else {
+    // Fallback development jika belum pasang public key
+    hubPayload = await verifyToken(token, c.env.JWT_SECRET)
+  }
+
+  if (!hubPayload) {
+    throw new HTTPException(401, { message: 'Autentikasi akun Asisten Guru tidak valid atau telah kedaluwarsa.' })
+  }
+
+  const hubAccountId = String(hubPayload.sub || hubPayload.hub_account_id || hubPayload.id || '')
+  const email = (hubPayload.email || '').trim().toLowerCase()
+  const name = hubPayload.name || 'Mitra Kreator'
+  const avatarUrl = hubPayload.avatar_url || null
+  const rawHubPhone = String(
+    hubPayload.whatsapp || 
+    hubPayload.phone_number || 
+    hubPayload.phone || 
+    hubPayload.no_hp || 
+    ''
+  ).trim()
+
+  let cleanHubPhone: string | null = null
+  if (rawHubPhone && rawHubPhone !== 'null' && rawHubPhone !== 'undefined' && rawHubPhone !== '-') {
+    const hasPlus = rawHubPhone.startsWith('+')
+    const digits = rawHubPhone.replace(/\D/g, '')
+    let normalized = hasPlus ? `+${digits}` : digits
+    if (normalized.startsWith('8')) normalized = '0' + normalized
+    if (/^(\+62|62|0)8[1-9][0-9]{6,11}$/.test(normalized)) {
+      cleanHubPhone = normalized
+    }
+  }
+
+  if (!email) {
+    throw new HTTPException(400, { message: 'Data akun Asisten Guru tidak memiliki alamat email yang valid.' })
+  }
+
+  // 3. Upsert User ke Database D1
+  let user = await c.env.DB.prepare(
+    'SELECT id, email, name, avatar_url, phone_number, is_active, seller_status FROM users WHERE hub_account_id = ? OR email = ?'
+  ).bind(hubAccountId, email).first<any>()
+
+  if (user) {
+    // Cek apakah akun dinonaktifkan
+    if (user.is_active === 0) {
+      throw new HTTPException(403, { message: 'Akun Anda telah dinonaktifkan. Hubungi administrator.' })
+    }
+
+    // User sudah terdaftar
+    const updates: string[] = []
+    const bindings: any[] = []
+
+    if (!user.seller_status) {
+      updates.push("seller_status = 'none'")
+      user.seller_status = 'none'
+    }
+    if (hubAccountId && !user.hub_account_id) {
+      updates.push("hub_account_id = ?")
+      bindings.push(hubAccountId)
+    }
+    if (avatarUrl && !user.avatar_url) {
+      updates.push("avatar_url = ?")
+      bindings.push(avatarUrl)
+    }
+    if (name && !user.name) {
+      updates.push("name = ?")
+      bindings.push(name)
+      user.name = name
+    }
+    // Prefill nomor HP dari Hub jika user di Mitra belum mengaturnya
+    if (cleanHubPhone && !user.phone_number) {
+      updates.push("phone_number = ?")
+      bindings.push(cleanHubPhone)
+      user.phone_number = cleanHubPhone
+    }
+
+    if (updates.length > 0) {
+      updates.push("updated_at = CURRENT_TIMESTAMP")
+      bindings.push(user.id)
+      await c.env.DB.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).bind(...bindings).run()
+    }
+
+    // SECURITY HARDENING: Hanya sematkan role-seller jika status kemitraan sudah disetujui ('approved')
+    // User dengan status 'none', 'pending', atau 'rejected' TIDAK diberikan hak akses seller produk
+    if (user.seller_status === 'approved') {
+      await c.env.DB.prepare("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, 'role-seller')").bind(user.id).run()
+    }
+  } else {
+    // Pengguna Baru: Daftarkan sebagai Seller baru dengan status 'none' (belum disetujui, belum memiliki role-seller)
+    const newUserId = crypto.randomUUID()
+    const randomPw = crypto.randomUUID() + crypto.randomUUID()
+    const hashedPw = await hashPassword(randomPw)
+
+    await c.env.DB.prepare(`
+      INSERT INTO users (id, email, name, avatar_url, phone_number, hub_account_id, seller_status, is_active, password_hash)
+      VALUES (?, ?, ?, ?, ?, ?, 'none', 1, ?)
+    `).bind(newUserId, email, name, avatarUrl, cleanHubPhone || null, hubAccountId || null, hashedPw).run()
+
+    user = {
+      id: newUserId,
+      email,
+      name,
+      avatar_url: avatarUrl,
+      phone_number: cleanHubPhone || null,
+      is_active: 1,
+      seller_status: 'none'
+    }
+  }
+
+  // 4. Muat permissions & role dari database D1
+  const roleQuery = await c.env.DB.prepare(`
+    SELECT r.name as role_name, p.name as permission_name
+    FROM user_roles ur
+    JOIN roles r ON ur.role_id = r.id
+    LEFT JOIN role_permissions rp ON r.id = rp.role_id
+    LEFT JOIN permissions p ON rp.permission_id = p.id
+    WHERE ur.user_id = ?
+  `).bind(user.id).all()
+
+  const permissions = roleQuery.results.map(r => r.permission_name).filter(Boolean) as string[]
+  const roles = [...new Set(roleQuery.results.map(r => r.role_name).filter(Boolean) as string[])]
+  let assignedRole = roles.includes('Admin') ? 'Admin' : (roles.includes('Editor') ? 'Editor' : (roles.includes('Seller') ? 'seller' : (roles[0] || 'user')))
+  const role = user.id === 'super_admin' ? 'super_admin' : assignedRole
+
+  // 5. Terbitkan Sesi Aman (JWT + HttpOnly Cookie Refresh Token)
+  const sessionPayload = {
+    id: user.id,
+    email: user.email,
+    role,
+    permissions,
+    seller_status: user.seller_status,
+    jti: crypto.randomUUID()
+  }
+
+  const accessToken = await generateAccessToken(sessionPayload, c.env.JWT_SECRET)
+  const refreshToken = await generateRefreshToken(sessionPayload, c.env.JWT_SECRET)
+  const hashedRefresh = await hashToken(refreshToken)
+
+  await c.env.DB.prepare(`
+    INSERT INTO refresh_tokens (id, user_id, token, user_agent, ip_address, expires_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now', '+7 days'))
+  `).bind(
+    crypto.randomUUID(),
+    user.id,
+    hashedRefresh,
+    c.req.header('User-Agent') || null,
+    c.req.header('CF-Connecting-IP') || null
+  ).run()
+
+  setCookie(c, 'refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    maxAge: 7 * 24 * 60 * 60,
+    path: '/'
+  })
+
+  return c.json({
+    access_token: accessToken,
+    seller_status: user.seller_status,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatar_url: user.avatar_url,
+      phone_number: user.phone_number || null,
+      seller_status: user.seller_status
+    }
+  })
 })
 
 export default auth

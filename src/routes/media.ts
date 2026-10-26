@@ -4,6 +4,7 @@ import { authMiddleware, requirePermission } from '../middlewares/auth'
 import { HTTPException } from 'hono/http-exception'
 import { isSafeImage, getContentTypeFromMagicBytes } from '../utils/magic-bytes'
 import { rateLimit } from '../middlewares/rate-limit'
+import { runMarketplaceR2GarbageCollector } from '../utils/garbage-collector'
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -43,6 +44,43 @@ media.get('/covers/:r2_key', async (c) => {
   return new Response(object.body, { headers })
 })
 
+media.get('/store-backgrounds/:r2_key', async (c) => {
+  const key = c.req.param('r2_key')
+  if (!key || !/^bg-[A-Za-z0-9_-]+-[0-9]+\.(jpg|jpeg|png|webp)$/i.test(key)) {
+    throw new HTTPException(400, { message: 'Nama berkas gambar latar belakang tidak valid.' })
+  }
+  const safeKey = key.replace(/[^a-zA-Z0-9.\-_]/g, '')
+  const object = await c.env.R2.get(`store-backgrounds/${safeKey}`)
+  if (!object) {
+    throw new HTTPException(404, { message: 'Gambar latar belakang etalase tidak ditemukan.' })
+  }
+
+  const headers = new Headers()
+  object.writeHttpMetadata(headers)
+  headers.set('etag', object.httpEtag)
+  headers.set('Cache-Control', 'public, max-age=31536000')
+  headers.set('X-Content-Type-Options', 'nosniff')
+
+  return new Response(object.body, { headers })
+})
+
+media.get('/sample-products/:r2_key', async (c) => {
+  const key = c.req.param('r2_key')
+  const safeKey = key.replace(/[^a-zA-Z0-9.\-_]/g, '')
+  const object = await c.env.R2.get(`sample-products/${safeKey}`)
+  if (!object) {
+    throw new HTTPException(404, { message: 'Foto contoh produk tidak ditemukan.' })
+  }
+
+  const headers = new Headers()
+  object.writeHttpMetadata(headers)
+  headers.set('etag', object.httpEtag)
+  headers.set('Cache-Control', 'public, max-age=31536000')
+  headers.set('X-Content-Type-Options', 'nosniff')
+
+  return new Response(object.body, { headers })
+})
+
 media.get('/:r2_key', async (c) => {
   const key = c.req.param('r2_key')
   // Sanitasi path traversal
@@ -66,7 +104,12 @@ media.get('/:r2_key', async (c) => {
 
 media.post('/', authMiddleware, requirePermission('upload_media'), rateLimit(30, 60, 'upload_media'), async (c) => {
   const user = c.get('user')
-  const body = await c.req.parseBody()
+  let body: any
+  try {
+    body = await c.req.parseBody()
+  } catch (err) {
+    throw new HTTPException(400, { message: 'Format pengunggahan berkas media tidak valid atau transmisi terputus.' })
+  }
   const file = body['file']
   const uploadType = body['type'] as string || 'content' // 'avatar' | 'content' | 'featured'
 
@@ -75,8 +118,8 @@ media.post('/', authMiddleware, requirePermission('upload_media'), rateLimit(30,
   }
 
   // 1. Validasi Ukuran berdasarkan tipe
-  let MAX_SIZE = 1 * 1024 * 1024 // default 1MB (konten)
-  let sizeLabel = '1MB'
+  let MAX_SIZE = 3 * 1024 * 1024 // default 3MB (konten & foto detail produk)
+  let sizeLabel = '3MB'
 
   if (uploadType === 'avatar') {
     MAX_SIZE = 2 * 1024 * 1024
@@ -138,22 +181,39 @@ media.post('/', authMiddleware, requirePermission('upload_media'), rateLimit(30,
   })
 })
 
-// Endpoint DELETE media — hapus dari R2 + D1
+// Endpoint DELETE media — hapus dari R2 + D1 (Hanya Super Admin di UI Utama)
 media.delete('/:id', authMiddleware, requirePermission('delete_media'), async (c) => {
   const mediaId = c.req.param('id')
+  const user = c.get('user')
+
+  // ATURAN KETAT: Hanya Super Admin di antarmuka administrasi utama yang berhak menghapus berkas penyimpanan secara permanen
+  if (user.role !== 'super_admin') {
+    throw new HTTPException(403, {
+      message: 'Akses ditolak. Hanya Super Admin di panel administrasi utama yang berhak menghapus berkas penyimpanan secara permanen.'
+    })
+  }
 
   const record = await c.env.DB.prepare(
     'SELECT id, r2_key, uploaded_by FROM media WHERE id = ?'
-  ).bind(mediaId).first()
+  ).bind(mediaId).first<{ id: string; r2_key: string; uploaded_by: string | null }>()
 
   if (!record) {
-    throw new HTTPException(404, { message: 'File tidak ditemukan.' })
+    throw new HTTPException(404, { message: 'Berkas media tidak ditemukan.' })
   }
 
-  const user = c.get('user')
-  // Hanya pemilik atau admin yang memiliki permission delete_any_media yang bisa menghapus
-  if (user.role !== 'super_admin' && !(user.permissions || []).includes('delete_any_media') && record.uploaded_by !== user.id) {
-    throw new HTTPException(403, { message: 'Anda tidak berhak menghapus file ini.' })
+  // PROTEKSI KONSUMEN: Cek apakah berkas ini terikat dengan produk digital yang pernah dibeli pengguna (termasuk snapshot riwayat transaksi)
+  const salesCheck = await c.env.DB.prepare(`
+    SELECT COALESCE(p.title, 'Produk Terkait') as title, COUNT(st.id) as sales_count
+    FROM sale_transactions st
+    LEFT JOIN products p ON st.product_id = p.id
+    WHERE st.purchased_file_r2_key = ? OR p.file_r2_key = ?
+    GROUP BY st.product_id
+  `).bind(record.r2_key, record.r2_key).first<{ title: string; sales_count: number }>()
+
+  if (salesCheck && salesCheck.sales_count > 0) {
+    throw new HTTPException(400, {
+      message: `Berkas digital tidak dapat dimusnahkan karena terikat dengan produk "${salesCheck.title}" yang telah memiliki ${salesCheck.sales_count} transaksi pembelian. Untuk menjaga hak unduh pembeli sah, berkas ini dilindungi sistem.`
+    })
   }
 
   // Hapus dari R2
@@ -172,7 +232,30 @@ media.delete('/:id', authMiddleware, requirePermission('delete_media'), async (c
     c.env.DB.prepare('DELETE FROM media WHERE id = ?').bind(mediaId)
   ])
 
-  return c.json({ message: 'File berhasil dihapus.' })
+  return c.json({ message: 'Berkas berhasil dihapus permanen oleh Super Admin.' })
+})
+
+// Endpoint Pemicu Manual Garbage Collector R2 Marketplace (Hanya Super Admin di Panel Administrasi Utama)
+media.post('/admin/gc-cleanup', authMiddleware, requirePermission('delete_media'), rateLimit(5, 60, 'media_admin_gc'), async (c) => {
+  const user = c.get('user')
+
+  if (user.role !== 'super_admin') {
+    throw new HTTPException(403, {
+      message: 'Akses ditolak. Hanya Super Admin di panel administrasi utama yang berhak memicu pembersihan berkas R2.'
+    })
+  }
+
+  const report = await runMarketplaceR2GarbageCollector(c.env, true)
+
+  return c.json({
+    message: 'Pembersihan berkas orphan R2 Marketplace berhasil dieksekusi.',
+    report: {
+      scanned_files: report.scannedCount,
+      deleted_files: report.deletedCount,
+      protected_active_keys: report.activeCount,
+      errors: report.errors
+    }
+  })
 })
 
 export default media

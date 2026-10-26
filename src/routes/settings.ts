@@ -34,12 +34,12 @@ settings.get('/', async (c) => {
 
 const singleSchema = z.object({
   key: z.string().min(1).max(100),
-  value: z.string()
+  value: z.string().max(10000, 'Nilai pengaturan maksimal 10.000 karakter')
 })
 
 const schema = z.union([
   singleSchema,
-  z.array(singleSchema)
+  z.array(singleSchema).max(50, 'Maksimal 50 pengaturan sekaligus')
 ])
 
 settings.put('/', authMiddleware, requirePermission('manage_settings'), rateLimit(30, 60, 'settings_write'), zValidator('json', schema), async (c) => {

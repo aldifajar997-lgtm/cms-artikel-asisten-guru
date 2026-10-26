@@ -54,11 +54,7 @@ export const useSunEditor = (onImageUploaded?: (key: string) => void) => {
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await api.post('/media', formData, {
-              headers: {
-                'Content-Type': 'multipart/form-data'
-              }
-            });
+            const response = await api.post('/media', formData);
 
             const data = response.data;
             if (data && data.result && data.result.length > 0) {

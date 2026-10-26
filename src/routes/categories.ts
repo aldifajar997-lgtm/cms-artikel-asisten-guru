@@ -41,8 +41,8 @@ categories.get('/', async (c) => {
 
   let baseQuery = `
     SELECT c.id, c.slug, c.name, c.type, c.description, c.target_keywords, c.color, c.created_at, c.parent_id, p.name as parent_name,
-           (SELECT COUNT(id) FROM posts post WHERE post.category_id = c.id AND post.status = 'published') as article_count,
-           (SELECT COUNT(id) FROM products prod WHERE prod.category_id = c.id AND prod.status = 'published') as product_count
+           (SELECT COUNT(post.id) FROM posts post WHERE post.category_id = c.id AND post.status = 'published') as article_count,
+           (SELECT COUNT(prod.id) FROM products prod JOIN users u ON prod.author_id = u.id WHERE prod.category_id = c.id AND prod.status = 'published' AND u.is_active = 1 AND (u.seller_status = 'approved' OR u.id = 'super_admin')) as product_count
     FROM categories c
     LEFT JOIN categories p ON c.parent_id = p.id
   `
@@ -83,9 +83,9 @@ const schema = z.object({
   slug: z.string().min(1).max(100).regex(slugRegex, 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung').transform(cleanText),
   type: z.enum(['article', 'product']).default('article'),
   description: z.string().max(500).optional().transform(v => v ? cleanText(v) : v),
-  target_keywords: z.array(z.string().transform(cleanText)).optional(),
-  color: z.string().transform(cleanText).optional(),
-  parent_id: z.string().nullable().optional()
+  target_keywords: z.array(z.string().max(100).transform(cleanText)).max(30).optional(),
+  color: z.string().max(50).transform(cleanText).optional(),
+  parent_id: z.string().max(100).nullable().optional()
 })
 
 categories.post('/', authMiddleware, requirePermission('manage_taxonomy'), rateLimit(30, 60, 'category_write'), zValidator('json', schema), async (c) => {

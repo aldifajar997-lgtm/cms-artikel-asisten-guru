@@ -1,0 +1,15 @@
+{
+  "name": "worker-mitra-asisten-guru",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Reverse Proxy for mitra.asisten-guru.id to mask mitra.asisten-guru.my.id",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^3.114.0"
+  }
+}

@@ -8,3 +8,5 @@ allowBuilds:
 packages:
   - '.'
   - 'UI'
+  - 'UI-Mitra'
+  - 'worker-mitra-asisten-guru'
