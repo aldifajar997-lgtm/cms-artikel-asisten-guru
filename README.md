@@ -69,12 +69,15 @@ flowchart TD
     end
 
     AdminUser --> UI_Admin
-    MitraUser --> WorkerProxy --> UI_Mitra
+    MitraUser --> WorkerProxy
+    WorkerProxy --> UI_Mitra
     PublicUser --> Hub_App
 
-    UI_Admin -->|API Calls (HTTPS)| WAF --> HonoApp
-    UI_Mitra -->|API Calls (Proxied via /api/*)| WorkerProxy --> HonoApp
-    Hub_App <-->|S2S Asymmetric RS256 JWT| HonoApp
+    UI_Admin -->|"API Calls (HTTPS)"| WAF
+    WAF --> HonoApp
+    UI_Mitra -->|"API Calls (Proxied via /api/*)"| WorkerProxy
+    WorkerProxy --> HonoApp
+    Hub_App <-->|"S2S Asymmetric RS256 JWT"| HonoApp
 
     HonoApp --> D1
     HonoApp --> KV
