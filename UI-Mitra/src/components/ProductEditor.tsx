@@ -410,6 +410,13 @@ Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
     }
   };
 
+  const parsedPrice = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
+  const parsedOriginalPrice = originalPrice ? (parseInt(originalPrice.replace(/[^0-9]/g, ''), 10) || 0) : undefined;
+  const discountPercentage = calculateDiscountPercentage(parsedOriginalPrice || 0, parsedPrice);
+  const activeFeeBps = policy?.fee_bps ?? (policy?.fee_percent ? Math.round(parseFloat(policy.fee_percent) * 100) : 1500);
+  const detailedEarnings = calculateProductEarningsWithPolicy(parsedPrice, policy, 'qris');
+  const minProductPrice = policy?.min_product_price ?? 10000;
+
   // Ajukan Produk ke Antrean Kurasi Super Admin
   const handleSubmitReview = async () => {
     const cleanTitle = stripHtml(title);
@@ -417,10 +424,13 @@ Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
       showError('Nama produk wajib diisi.');
       return;
     }
-    const cleanPrice = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
     const minPriceLimit = policy?.min_product_price ?? 10000;
-    if (cleanPrice < minPriceLimit) {
+    if (parsedPrice < minPriceLimit) {
       showError(`Harga jual minimal ${formatCurrency(minPriceLimit)} sesuai kebijakan platform.`);
+      return;
+    }
+    if (!categoryId) {
+      showError('Pilih kategori produk terlebih dahulu sebelum mengajukan kurasi.');
       return;
     }
     if (!coverImageKey) {
@@ -429,6 +439,11 @@ Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
     }
     if (!fileR2Key) {
       showError('Berkas digital produk (.zip) wajib diunggah sebelum mengajukan kurasi.');
+      return;
+    }
+
+    if (parsedOriginalPrice && parsedOriginalPrice <= parsedPrice) {
+      showError('Harga normal (coret) harus lebih tinggi dari harga jual.');
       return;
     }
 
@@ -451,7 +466,7 @@ Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
         title: cleanTitle,
         slug: generateSlug(cleanTitle) || slug.trim(),
         description: description.trim(),
-        price: cleanPrice,
+        price: parsedPrice,
         original_price: parsedOriginalPrice,
         status: targetStatus,
         cover_image_key: coverImageKey,
@@ -478,13 +493,6 @@ Catatan  : Wajib tautan langsung (DILARANG menggunakan safelink/iklan/bit.ly).
       setIsSaving(false);
     }
   };
-
-  const parsedPrice = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
-  const parsedOriginalPrice = originalPrice ? (parseInt(originalPrice.replace(/[^0-9]/g, ''), 10) || 0) : 0;
-  const discountPercentage = calculateDiscountPercentage(parsedOriginalPrice, parsedPrice);
-  const activeFeeBps = policy?.fee_bps ?? (policy?.fee_percent ? Math.round(parseFloat(policy.fee_percent) * 100) : 1500);
-  const detailedEarnings = calculateProductEarningsWithPolicy(parsedPrice, policy, 'qris');
-  const minProductPrice = policy?.min_product_price ?? 10000;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-300">
