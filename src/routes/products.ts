@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { verify } from 'hono/jwt'
+import { verify, sign } from 'hono/jwt'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { Bindings, Variables } from '../types'
@@ -10,6 +10,7 @@ import { rateLimit } from '../middlewares/rate-limit'
 import { parseZipBuffer, extractZipEntry } from '../utils/zip-parser'
 import { scanMainFileBuffer, MalwareScanReport } from '../utils/malware-scanner'
 import { parseTrafficSource, parseDeviceType } from '../utils/traffic-parser'
+import { getClientIp } from '../utils/client-ip'
 import xss from 'xss'
 
 export function isSuperAdminOrAdmin(user: any): boolean {
@@ -325,6 +326,64 @@ products.get('/public/:slug', async (c) => {
   return c.json(mappedProduct)
 })
 
+
+// --- PREVIEW ROUTE ---
+products.get('/preview/:identifier', rateLimit(100, 60, 'preview_products'), async (c) => {
+  const identifier = c.req.param('identifier');
+  const token = c.req.query('token');
+
+  if (!token) throw new HTTPException(401, { message: 'Token pratinjau tidak valid atau tidak ditemukan.' });
+
+  let payload: any;
+  try {
+    payload = await verify(token, c.env.JWT_SECRET, 'HS256');
+    if (!payload || payload.type !== 'product_preview') {
+      throw new Error('Invalid token type');
+    }
+  } catch (e) {
+    throw new HTTPException(401, { message: 'Sesi pratinjau kedaluwarsa atau tidak valid.' });
+  }
+
+  // Ambil data produk tanpa membatasi status (draft/pending_review/published)
+  const product = await c.env.DB.prepare(`
+    SELECT p.id, p.slug, p.title, p.price, p.original_price, p.cover_image_key, p.cover_image_alt,
+           p.detail_image_1_key, p.detail_image_1_alt, p.detail_image_2_key, p.detail_image_2_alt,
+           p.detail_image_3_key, p.detail_image_3_alt, p.description, p.status, p.created_at, p.updated_at,
+           p.category_id, p.meta_title, p.meta_description, p.view_count, p.sales_count, p.average_rating,
+           p.total_reviews, c.name as category_name, c.slug as category_slug, u.id as seller_id,
+           COALESCE(NULLIF(TRIM(u.store_name), ''), NULLIF(TRIM(u.name), ''), NULLIF(TRIM(u.store_slug), ''), 'Penjual Mitra') as seller_name,
+           u.store_slug as seller_slug, u.avatar_url as seller_avatar_url, u.cover_url as seller_cover_url
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    JOIN users u ON p.author_id = u.id
+    WHERE (p.id = ? OR p.slug = ?)
+  `).bind(identifier, identifier).first();
+
+  if (!product) throw new HTTPException(404, { message: 'Produk tidak ditemukan atau draf telah dihapus.' });
+
+  // Verifikasi kecocokan token dengan produk
+  if (String(product.id) !== String(payload.productId) && product.slug !== String(payload.productId)) {
+    throw new HTTPException(401, { message: 'Token tidak cocok dengan produk ini.' });
+  }
+
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  c.header('Expires', '0');
+  c.header('Surrogate-Control', 'no-store');
+
+  const origin = new URL(c.req.url).origin;
+  const mappedProduct = {
+    ...product,
+    cover_image_url: product.cover_image_key ? `${origin}/api/media/${product.cover_image_key}` : null,
+    detail_image_1_url: product.detail_image_1_key ? `${origin}/api/media/${product.detail_image_1_key}` : null,
+    detail_image_2_url: product.detail_image_2_key ? `${origin}/api/media/${product.detail_image_2_key}` : null,
+    detail_image_3_url: product.detail_image_3_key ? `${origin}/api/media/${product.detail_image_3_key}` : null,
+    seller_avatar_url: toAbsoluteMediaUrl(origin, product.seller_avatar_url),
+    seller_cover_url: toAbsoluteMediaUrl(origin, product.seller_cover_url)
+  };
+
+  return c.json(mappedProduct);
+});
+
 products.post('/public/:slug/view', rateLimit(1, 60, (c) => `product_view_${c.req.param('slug')}`), async (c) => {
   const slug = c.req.param('slug')
   await c.env.DB.prepare(`
@@ -351,7 +410,7 @@ const trackEventSchema = z.object({
 })
 
 // Public Track Event: Ingestion tayangan toko, produk, dan intent checkout dengan metode atomic upsert D1
-products.post('/public/track-event', rateLimit(60, 60, (c) => `track_event_${c.req.header('cf-connecting-ip') || 'anon'}`), zValidator('json', trackEventSchema), async (c) => {
+products.post('/public/track-event', rateLimit(60, 60, (c) => `track_event_${getClientIp(c) || 'anon'}`), zValidator('json', trackEventSchema), async (c) => {
   try {
     const body = c.req.valid('json')
     let sellerId = (body.seller_id || '').trim()
@@ -412,23 +471,29 @@ products.post('/public/track-event', rateLimit(60, 60, (c) => `track_event_${c.r
     const date = new Date().toISOString().slice(0, 10)
     const rowId = `${sellerId}:${productId || 'store'}:${date}:${eventType}:${source}:${deviceType}`
 
-    // Eksekusi atomic upsert ke store_daily_analytics
-    await c.env.DB.prepare(`
-      INSERT INTO store_daily_analytics (
-        id, seller_id, product_id, date, event_type, source, device_type, count, updated_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP
-      )
-      ON CONFLICT(seller_id, product_id, date, event_type, source, device_type)
-      DO UPDATE SET count = count + 1, updated_at = CURRENT_TIMESTAMP
-    `).bind(rowId, sellerId, productId || '', date, eventType, source, deviceType).run()
+    // Eksekusi transaksi atomik via batch D1 untuk mencegah inkonsistensi data & memangkas latensi round-trip
+    const batchStatements = [
+      c.env.DB.prepare(`
+        INSERT INTO store_daily_analytics (
+          id, seller_id, product_id, date, event_type, source, device_type, count, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT(seller_id, product_id, date, event_type, source, device_type)
+        DO UPDATE SET count = count + 1, updated_at = CURRENT_TIMESTAMP
+      `).bind(rowId, sellerId, productId || '', date, eventType, source, deviceType)
+    ]
 
-    // Jika product_view, juga update agregat total view_count pada produk
+    // Jika product_view, gabungkan update agregat view_count dalam batch yang sama (100% atomik)
     if (eventType === 'product_view' && productId) {
-      await c.env.DB.prepare(`
-        UPDATE products SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?
-      `).bind(productId).run()
+      batchStatements.push(
+        c.env.DB.prepare(`
+          UPDATE products SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?
+        `).bind(productId)
+      )
     }
+
+    await c.env.DB.batch(batchStatements)
 
     return c.json({ success: true, message: 'Event berhasil dicatat' })
   } catch (err) {
@@ -1436,6 +1501,30 @@ products.get('/admin/all', requirePermission('view_dashboard'), async (c) => {
   return c.json({ data: results.results, limit, offset })
 })
 
+
+products.get('/admin/preview-token/:id', requirePermission('edit_product'), async (c) => {
+  const targetId = c.req.param('id');
+  const user = c.get('user');
+
+  const existing = await c.env.DB.prepare('SELECT id, author_id FROM products WHERE id = ?').bind(targetId).first<{ id: string; author_id: string }>();
+  if (!existing) throw new HTTPException(404, { message: 'Produk tidak ditemukan.' });
+
+  if (user.role !== 'super_admin' && !(user.permissions || []).includes('edit_any_product')) {
+    if (existing.author_id !== user.id) {
+      throw new HTTPException(403, { message: 'Anda tidak berhak melihat pratinjau produk milik mitra lain.' });
+    }
+  }
+
+  // Buat JWT khusus pratinjau valid 15 menit (mematuhi Rule #1: Anti-Static Token)
+  const token = await sign({
+    productId: targetId,
+    type: 'product_preview',
+    exp: Math.floor(Date.now() / 1000) + 15 * 60
+  }, c.env.JWT_SECRET);
+
+  return c.json({ data: token });
+});
+
 products.get('/admin/:id', requirePermission('edit_product'), async (c) => {
   const targetId = c.req.param('id')
   const user = c.get('user')
@@ -1784,13 +1873,15 @@ products.delete('/:id', requirePermission('delete_product'), rateLimit(30, 60, '
   }
 
   // 3. EKSEKUSI SUPER ADMIN HARD DELETE (Hanya jika belum pernah ada transaksi penjualan):
+  const deleteBatch: any[] = []
   if (existing.file_r2_key) {
     await c.env.R2.delete(existing.file_r2_key as string).catch(() => {})
-    await c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(existing.file_r2_key).run()
+    deleteBatch.push(c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(existing.file_r2_key))
   }
   
-  // Eksekusi Hard Delete D1
-  await c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId).run()
+  // Eksekusi Hard Delete D1 secara Atomik
+  deleteBatch.push(c.env.DB.prepare('DELETE FROM products WHERE id = ?').bind(targetId))
+  await c.env.DB.batch(deleteBatch)
 
   c.executionCtx.waitUntil(invalidateProductCaches(c.env.KV, (existing as any).slug))
   return c.json({ message: 'Produk dan berkas digital berhasil dimusnahkan permanen oleh Super Admin.' })
@@ -1920,8 +2011,12 @@ products.put('/admin/:id/approve', rateLimit(30, 60, 'curate_approve'), async (c
   const isZip = headerBytes[0] === 0x50 && headerBytes[1] === 0x4b
   if (isZip) {
     const archiveInfo = parseZipBuffer(buf)
-    if (archiveInfo.hasSuspiciousFiles || (archiveInfo.threats && archiveInfo.threats.length > 0)) {
-      throw new HTTPException(400, { message: 'Produk tidak dapat disetujui karena berkas di dalam arsip ZIP terindikasi berbahaya.' })
+    // Cek apakah ada ancaman mutlak / critical (cloaking, exploit script, path traversal, unicode spoof)
+    const hasCriticalThreat = (archiveInfo.threats || []).some(
+      t => t.severity === 'critical' || t.type === 'cloaked_executable' || t.type === 'path_traversal' || t.type === 'unicode_spoof' || t.type === 'script'
+    )
+    if (hasCriticalThreat) {
+      throw new HTTPException(400, { message: 'Produk tidak dapat disetujui karena berkas di dalam arsip ZIP terindikasi berbahaya atau menyamarkan program berbahaya.' })
     }
   }
 
@@ -2103,7 +2198,7 @@ products.get('/admin/:id/files', rateLimit(60, 60, 'curate_files_inspect'), asyn
         archiveInfo = parseZipBuffer(buf)
         // Gabungkan ancaman dari arsip jika ada (bedakan malware kritis vs peringatan macro edukasi)
         if (archiveInfo.threats && archiveInfo.threats.length > 0) {
-          const hasCriticalThreat = archiveInfo.threats.some((t: any) => t.severity === 'critical' || t.type === 'executable' || t.type === 'path_traversal' || t.type === 'unicode_spoof');
+          const hasCriticalThreat = archiveInfo.threats.some((t: any) => t.severity === 'critical' || t.type === 'cloaked_executable' || t.type === 'path_traversal' || t.type === 'unicode_spoof' || t.type === 'script');
           if (hasCriticalThreat) {
             malwareReport.isClean = false;
             malwareReport.threatLevel = 'critical';

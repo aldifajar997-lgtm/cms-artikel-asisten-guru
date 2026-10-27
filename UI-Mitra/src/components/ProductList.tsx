@@ -18,6 +18,8 @@ import { Product, ProductStatus } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/dateFormatter';
 import { calculateDiscountPercentage } from '../utils/financialCalculations';
 import { getMediaUrl } from '../utils/mediaUrl';
+import api, { handleApiError } from '../utils/api';
+import { useToast } from '../context/ToastContext';
 
 interface ProductListProps {
   products: Product[];
@@ -45,6 +47,26 @@ export const ProductList: React.FC<ProductListProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ProductStatus>('all');
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const { error: showError } = useToast();
+
+  const handlePreviewProduct = async (product: Product) => {
+    try {
+      setPreviewLoadingId(product.id);
+      const res = await api.get(`/products/admin/preview-token/${product.id}`);
+      const token = res.data?.data || res.data;
+      if (!token) {
+        throw new Error('Gagal membuat sesi pratinjau.');
+      }
+      const previewUrl = `https://asisten-guru.id/toko/preview/${product.id}?token=${encodeURIComponent(token)}`;
+      window.open(previewUrl, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      console.error('Preview product error:', err);
+      showError(handleApiError(err) || 'Gagal membuka pratinjau produk.');
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  };
 
   const filteredProducts = products.filter((p) => {
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -331,6 +353,18 @@ export const ProductList: React.FC<ProductListProps> = ({
                     {/* Aksi Buttons */}
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => handlePreviewProduct(product)}
+                          disabled={previewLoadingId === product.id}
+                          title="Pratinjau Produk di Toko"
+                          className="p-1.5 text-stone-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer disabled:opacity-50"
+                        >
+                          {previewLoadingId === product.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
                         <button
                           onClick={() => onSelectProduct(product)}
                           title="Edit Produk"

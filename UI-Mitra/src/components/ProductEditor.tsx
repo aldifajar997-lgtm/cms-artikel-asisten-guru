@@ -98,6 +98,29 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
   const [metaDescription, setMetaDescription] = useState(product.meta_description || '');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  const handlePreviewProduct = async () => {
+    if (!product?.id) {
+      showError('Simpan draf produk terlebih dahulu sebelum membuka pratinjau.');
+      return;
+    }
+    try {
+      setIsPreviewing(true);
+      const res = await api.get(`/products/admin/preview-token/${product.id}`);
+      const token = res.data?.data || res.data;
+      if (!token) {
+        throw new Error('Gagal membuat sesi pratinjau.');
+      }
+      const previewUrl = `https://asisten-guru.id/toko/preview/${product.id}?token=${encodeURIComponent(token)}`;
+      window.open(previewUrl, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      console.error('Preview editor product error:', err);
+      showError(handleApiError(err) || 'Gagal membuka pratinjau produk.');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [isUploadingDetail, setIsUploadingDetail] = useState<{ [key: number]: boolean }>({ 1: false, 2: false, 3: false });
