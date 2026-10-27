@@ -102,8 +102,8 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
 
   // --- USER NORMAL ---
   const user = await c.env.DB.prepare(
-    'SELECT id, email, password_hash, is_active FROM users WHERE email = ?'
-  ).bind(email).first()
+    'SELECT id, email, password_hash, is_active, token_version FROM users WHERE email = ?'
+  ).bind(email).first<any>()
 
   // SECURITY PATCH: Mencegah Timing Attack (Email Enumeration).
   // Jika user tidak ada, kita tetap melakukan perhitungan hash tiruan (dummy)
@@ -143,6 +143,7 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
     email: user.email as string,
     role,
     permissions,
+    token_version: (user as any).token_version ?? 1,
     jti: crypto.randomUUID()
   }
 
@@ -268,12 +269,14 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
     currentRole = 'super_admin'
   }
 
-  // Refresh status seller real-time dari database D1
+  // Refresh status seller & token_version real-time dari database D1
   let freshSellerStatus = payload.seller_status
+  let freshTokenVersion: number | undefined = undefined
   if (tokenRecord.user_id !== 'super_admin') {
-    const userStatus = await c.env.DB.prepare('SELECT seller_status FROM users WHERE id = ?').bind(tokenRecord.user_id).first<{ seller_status: string }>()
-    if (userStatus) {
-      freshSellerStatus = userStatus.seller_status
+    const userRow = await c.env.DB.prepare('SELECT seller_status, token_version FROM users WHERE id = ?').bind(tokenRecord.user_id).first<{ seller_status: string; token_version: number | null }>()
+    if (userRow) {
+      freshSellerStatus = userRow.seller_status
+      freshTokenVersion = userRow.token_version ?? 1
     }
   }
 
@@ -283,6 +286,7 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
     role: currentRole,
     permissions: currentPermissions,
     seller_status: freshSellerStatus,
+    token_version: freshTokenVersion,
     jti: crypto.randomUUID()
   }
 
@@ -446,7 +450,7 @@ auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', 
   const hashedPassword = await hashPassword(new_password)
 
   await c.env.DB.prepare(
-    'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    'UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
   ).bind(hashedPassword, resetRecord.user_id).run()
 
   // CRITICAL FIX: Hapus semua sesi aktif pengguna karena password telah diubah
@@ -667,7 +671,7 @@ auth.post('/sso/hub/callback', rateLimit(10, 60, 'sso_hub_callback'), zValidator
 
   // 3. Upsert User ke Database D1
   let user = await c.env.DB.prepare(
-    'SELECT id, email, name, avatar_url, phone_number, is_active, seller_status FROM users WHERE hub_account_id = ? OR email = ?'
+    'SELECT id, email, name, avatar_url, phone_number, is_active, seller_status, token_version FROM users WHERE hub_account_id = ? OR email = ?'
   ).bind(hubAccountId, email).first<any>()
 
   if (user) {
@@ -759,6 +763,7 @@ auth.post('/sso/hub/callback', rateLimit(10, 60, 'sso_hub_callback'), zValidator
     role,
     permissions,
     seller_status: user.seller_status,
+    token_version: user.token_version ?? 1,
     jti: crypto.randomUUID()
   }
 

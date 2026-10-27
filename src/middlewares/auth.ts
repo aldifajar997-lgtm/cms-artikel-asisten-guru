@@ -31,11 +31,18 @@ export const authMiddleware = async (c: AppContext, next: Next) => {
     }
   }
 
-  // CRITICAL FIX: Real-time active status check
+  // CRITICAL FIX: Real-time active status check & Token Revocation List (token_version)
   if ((payload as any).id !== 'super_admin') {
-    const userInDb = await c.env.DB.prepare('SELECT is_active FROM users WHERE id = ?').bind((payload as any).id).first<{is_active: number}>()
+    const userInDb = await c.env.DB.prepare('SELECT is_active, token_version FROM users WHERE id = ?').bind((payload as any).id).first<{is_active: number; token_version: number | null}>()
     if (!userInDb || userInDb.is_active === 0) {
       throw new HTTPException(401, { message: 'Akun Anda telah dinonaktifkan. Hubungi administrator.' })
+    }
+
+    // Revocation check: Jika token memiliki token_version, bandingkan dengan versi database saat ini
+    const dbTokenVersion = userInDb.token_version ?? 1
+    const tokenVersion = (payload as any).token_version
+    if (tokenVersion !== undefined && tokenVersion < dbTokenVersion) {
+      throw new HTTPException(401, { message: 'Sesi Anda telah dicabut atau diakhiri. Silakan login kembali.' })
     }
   }
 

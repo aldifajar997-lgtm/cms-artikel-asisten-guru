@@ -22,6 +22,7 @@ export interface JWTPayload {
   role: string
   permissions?: string[]
   jti: string
+  token_version?: number
 }
 
 export type Variables = {

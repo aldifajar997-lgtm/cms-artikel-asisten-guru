@@ -46,7 +46,7 @@ Semua pesan error ke klien menggunakan bahasa yang ramah pengguna; detail teknis
 | :--- | :---: | :--- | :--- |
 | `/me` | `GET` | 🔴 Login | Data profil lengkap termasuk `cover_url`, target SEO, dan sosial media. |
 | `/me` | `PUT` | 🔴 Login | Update profil (whitelist field). `avatar_url`/`cover_url`: **tidak dikirim = dipertahankan**, `""`/`null` = dihapus (file lama ikut dibersihkan). URL absolut otomatis dinormalisasi ke relatif. Rate limit 10/menit. |
-| `/me/password` | `PUT` | 🔴 Login | Ganti password (wajib password lama). Mengakhiri sesi di perangkat lain. Tidak berlaku untuk Super Admin. Rate limit 5/jam. |
+| `/me/password` | `PUT` | 🔴 Login | Ganti password (wajib password lama). Mengakhiri sesi di perangkat lain seketika via inkrementasi `token_version` (Token Revocation List). Tidak berlaku untuk Super Admin. Rate limit 5/jam. |
 | `/me/avatar` | `POST` | 🔴 Login | Upload avatar (`multipart`, field `avatar`). Maks 2MB, JPG/PNG/WEBP (validasi *magic bytes*). Response: `{ avatar_url }`. Rate limit 5/menit. |
 | `/me/cover` | `POST` | 🔴 Login | **Baru.** Upload foto sampul etalase seller (`multipart`, field `cover`). Maks 3MB, JPG/PNG/WEBP. File lama otomatis dihapus. Response: `{ cover_url }` (relatif, `/api/media/covers/...`). Rate limit 5/menit. |
 

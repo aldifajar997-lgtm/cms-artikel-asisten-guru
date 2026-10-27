@@ -934,7 +934,7 @@ users.put('/me/password', rateLimit(5, 3600, 'update_pw'), zValidator('json', up
   }
 
   const newHash = await hashPassword(new_password)
-  await c.env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  await c.env.DB.prepare('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .bind(newHash, user.id).run()
 
   // Hapus semua refresh token KECUALI token milik sesi saat ini agar tidak ter-logout
@@ -1891,7 +1891,7 @@ users.put('/:id/reset-password', rateLimit(30, 60, 'reset_password'), zValidator
   const { new_password } = c.req.valid('json')
 
   const hashed = await hashPassword(new_password)
-  const result = await c.env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  const result = await c.env.DB.prepare('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .bind(hashed, targetId).run()
 
   if (result.meta.changes === 0) {
@@ -1993,8 +1993,11 @@ users.put('/:id/status', rateLimit(30, 60, 'update_status'), zValidator('json', 
     throw new HTTPException(404, { message: 'User tidak ditemukan.' })
   }
 
+  const updateStatusSql = is_active
+    ? 'UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    : 'UPDATE users SET is_active = ?, token_version = COALESCE(token_version, 1) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
   const batchStmts = [
-    c.env.DB.prepare('UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(isActiveInt, targetId)
+    c.env.DB.prepare(updateStatusSql).bind(isActiveInt, targetId)
   ]
 
   // Jika di-nonaktifkan:
@@ -2251,6 +2254,7 @@ users.put('/sellers/:id/suspend', rateLimit(30, 60, 'suspend_seller'), async (c)
     c.env.DB.prepare(`
       UPDATE users 
       SET seller_status = 'suspended', 
+          token_version = COALESCE(token_version, 1) + 1, 
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(targetId),
