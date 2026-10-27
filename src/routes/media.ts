@@ -4,7 +4,7 @@ import { authMiddleware, requirePermission } from '../middlewares/auth'
 import { HTTPException } from 'hono/http-exception'
 import { isSafeImage, getContentTypeFromMagicBytes } from '../utils/magic-bytes'
 import { rateLimit } from '../middlewares/rate-limit'
-import { runMarketplaceR2GarbageCollector } from '../utils/garbage-collector'
+import { runDailyGarbageCollector } from '../utils/garbage-collector'
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -81,12 +81,26 @@ media.get('/sample-products/:r2_key', async (c) => {
   return new Response(object.body, { headers })
 })
 
-media.get('/:r2_key', async (c) => {
-  const key = c.req.param('r2_key')
-  // Sanitasi path traversal
-  const safeKey = key.replace(/[^a-zA-Z0-9.\-_]/g, '')
+media.get('/:r2_key{.+}', async (c) => {
+  const rawKey = c.req.param('r2_key')
+  // Sanitasi path traversal (izinkan alphanumeric, dash, underscore, dot, dan slash untuk subfolder)
+  const safeKey = rawKey.replace(/[^a-zA-Z0-9.\-_\/]/g, '').replace(/\/{2,}/g, '/').replace(/^\/+/, '')
 
-  const object = await c.env.R2.get(safeKey)
+  if (!safeKey || safeKey.includes('..')) {
+    throw new HTTPException(400, { message: 'Format path berkas tidak valid.' })
+  }
+
+  // Cari berkas di R2: cek langsung safeKey, atau fallback jika file lama ada di root
+  let object = await c.env.R2.get(safeKey)
+  
+  if (!object && safeKey.includes('/')) {
+    // Fallback backward-compatible: jika dipanggil dengan prefix tapi file lama tersimpan di root
+    const rootKey = safeKey.split('/').pop() || ''
+    if (rootKey) {
+      object = await c.env.R2.get(rootKey)
+    }
+  }
+
   if (!object) {
     throw new HTTPException(404, { message: 'File tidak ditemukan.' })
   }
@@ -245,15 +259,23 @@ media.post('/admin/gc-cleanup', authMiddleware, requirePermission('delete_media'
     })
   }
 
-  const report = await runMarketplaceR2GarbageCollector(c.env, true)
+  const report = await runDailyGarbageCollector(c.env, true)
 
   return c.json({
-    message: 'Pembersihan berkas orphan R2 Marketplace berhasil dieksekusi.',
+    message: 'Pembersihan berkas orphan R2 (Marketplace & Artikel) berhasil dieksekusi.',
     report: {
-      scanned_files: report.scannedCount,
-      deleted_files: report.deletedCount,
-      protected_active_keys: report.activeCount,
-      errors: report.errors
+      marketplace: {
+        scanned_files: report.marketplace.scannedCount,
+        deleted_files: report.marketplace.deletedCount,
+        protected_active_keys: report.marketplace.activeCount,
+        errors: report.marketplace.errors
+      },
+      articles: {
+        scanned_files: report.articles.scannedCount,
+        deleted_files: report.articles.deletedCount,
+        protected_active_keys: report.articles.activeCount,
+        errors: report.articles.errors
+      }
     }
   })
 })

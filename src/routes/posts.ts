@@ -327,60 +327,25 @@ posts.post('/:slug/view', rateLimit(1, 60, (c) => `post_view_${c.req.param('slug
 
 posts.use('*', authMiddleware)
 
-function extractMediaKeys(content: string | null, featuredImage: string | null): string[] {
+// Helper untuk mengekstrak R2 media keys dari konten HTML dan featured image artikel
+export function extractMediaKeys(content: string | null, featuredImage: string | null): string[] {
   const keys: string[] = []
   if (featuredImage) {
-    const match = featuredImage.match(/\/api\/media\/([^\/"']+)/)
-    if (match) keys.push(match[1])
+    const match = featuredImage.match(/\/api\/media\/([a-zA-Z0-9.\-_\/]+?)(?=["'\s>)]|$)/)
+    if (match && match[1]) {
+      keys.push(match[1].replace(/\/+$/, ''))
+    } else if (!featuredImage.includes('/') && !featuredImage.includes(':')) {
+      keys.push(featuredImage)
+    }
   }
   if (content) {
-    const regex = /\/api\/media\/([^\/"']+)/g
+    const regex = /\/api\/media\/([a-zA-Z0-9.\-_\/]+?)(?=["'\s>)]|$)/g
     let match;
     while ((match = regex.exec(content)) !== null) {
-      keys.push(match[1])
+      if (match[1]) keys.push(match[1].replace(/\/+$/, ''))
     }
   }
   return [...new Set(keys)]
-}
-
-async function cleanupOrphanedMedia(c: any, keys: string[], userId?: string, isSuperAdmin = false) {
-  if (!keys || keys.length === 0) return;
-  try {
-    // Sanitasi key dan batasi maksimal 50 per operasi
-    const sanitizedKeys = keys
-      .map(k => typeof k === 'string' ? k.replace(/[^a-zA-Z0-9.\-_]/g, '') : '')
-      .filter(Boolean)
-      .slice(0, 50);
-
-    if (sanitizedKeys.length === 0) return;
-
-    // SECURITY HARDENING (Point #1): Hanya hapus file yang benar-benar tercatat di tabel media
-    // DAN di-upload oleh user bersangkutan (mencegah arbitrary file deletion di R2)
-    const placeholders = sanitizedKeys.map(() => '?').join(',');
-    let query = `SELECT r2_key FROM media WHERE r2_key IN (${placeholders})`;
-    const params: any[] = [...sanitizedKeys];
-
-    if (!isSuperAdmin && userId) {
-      query += ' AND uploaded_by = ?';
-      params.push(userId);
-    }
-
-    const authorizedMedia = await c.env.DB.prepare(query).bind(...params).all();
-    const safeKeysToDelete = ((authorizedMedia.results || []) as any[]).map((r: any) => r.r2_key as string);
-
-    if (safeKeysToDelete.length === 0) return;
-
-    const batchStmts = [];
-    for (const key of safeKeysToDelete) {
-      await c.env.R2.delete(key);
-      batchStmts.push(c.env.DB.prepare('DELETE FROM media WHERE r2_key = ?').bind(key));
-    }
-    if (batchStmts.length > 0) {
-      await c.env.DB.batch(batchStmts);
-    }
-  } catch (err) {
-    console.error('Failed to cleanup media:', err);
-  }
 }
 
 const stripHtml = (val: string) => val ? val.replace(/<[^>]*>?/gm, '').trim() : val;
@@ -586,11 +551,7 @@ posts.post('/', requirePermission('create_post'), rateLimit(30, 60, 'post_write'
 
     await c.env.DB.batch(stmts)
 
-    // Garbage Collection (On-Save)
-    const usedKeys = extractMediaKeys(cleanContent, body.featured_image || null);
-    const sessionKeys = body.session_media_keys || [];
-    const orphanedKeys = sessionKeys.filter((k: string) => !usedKeys.includes(k));
-    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, orphanedKeys, user.id, user.role === 'super_admin'));
+    // Invalidasi cache KV
     c.executionCtx.waitUntil(invalidatePostListAndCategoryCaches(c.env.KV));
 
     return c.json({ message: 'Artikel berhasil dibuat.', id })
@@ -670,17 +631,6 @@ posts.put('/:id', requirePermission('edit_post'), rateLimit(30, 60, 'post_write'
 
     await c.env.DB.batch(stmts)
 
-    // Garbage Collection (On-Save)
-    const oldKeys = extractMediaKeys(existing.content as string, existing.featured_image as string);
-    const newKeys = extractMediaKeys(cleanContent, body.featured_image || null);
-    const sessionKeys = body.session_media_keys || [];
-    
-    const sessionOrphaned = sessionKeys.filter((k: string) => !newKeys.includes(k));
-    const removedOldKeys = oldKeys.filter((k: string) => !newKeys.includes(k));
-    
-    const totalOrphanedKeys = [...new Set([...sessionOrphaned, ...removedOldKeys])];
-    c.executionCtx.waitUntil(cleanupOrphanedMedia(c, totalOrphanedKeys, user.id, user.role === 'super_admin'));
-
     // Invalidasi cache KV
     if (existing && existing.slug) {
       c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))
@@ -715,10 +665,6 @@ posts.delete('/:id', requirePermission('delete_post'), rateLimit(30, 60, 'post_w
   }
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(targetId).run()
-
-  // Garbage Collection saat artikel dihapus permanen
-  const oldKeys = extractMediaKeys(existing.content as string, existing.featured_image as string);
-  c.executionCtx.waitUntil(cleanupOrphanedMedia(c, oldKeys, existing.author_id as string, user.role === 'super_admin'));
 
   if (existing.slug) {
     c.executionCtx.waitUntil(c.env.KV.delete(`cache:post_slug:${existing.slug}`))

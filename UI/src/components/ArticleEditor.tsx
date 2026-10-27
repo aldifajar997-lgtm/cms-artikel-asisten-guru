@@ -151,7 +151,23 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
 
   // Save Logic
   const triggerSave = async (targetStatus: Article['status']) => {
-    if (content.includes('data:image/')) {
+    // Selalu ambil HTML konten paling mutakhir langsung dari SunEditor instance jika tersedia
+    let currentLiveContent = content;
+    if (sunEditorRef.current) {
+      try {
+        const liveContents = sunEditorRef.current.getContents(false);
+        if (typeof liveContents === 'string') {
+          currentLiveContent = liveContents;
+          if (currentLiveContent !== content) {
+            setContent(currentLiveContent);
+          }
+        }
+      } catch (e) {
+        console.warn('Gagal membaca getContents langsung dari SunEditor instance:', e);
+      }
+    }
+
+    if (currentLiveContent.includes('data:image/')) {
       alert('Artikel mengandung gambar copy-paste (Base64). Harap hapus dan unggah melalui tombol gambar di editor agar performa situs tetap cepat.');
       return null;
     }
@@ -175,7 +191,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
       ...article,
       title,
       slug: finalSlug,
-      content,
+      content: currentLiveContent,
       excerpt: metaDescription, // excerptFallback applied inside useSeoGeoAnalysis theoretically or onSave
       categoryId,
       focusKeyword,

@@ -2,13 +2,12 @@ import { Context, Next } from 'hono'
 import { Bindings, Variables } from '../types'
 import { HTTPException } from 'hono/http-exception'
 
+import { getClientIp } from '../utils/client-ip'
+
 export const rateLimit = (limit: number, windowSecs: number, prefix: string | ((c: Context<{ Bindings: Bindings; Variables: Variables }>) => string) = 'rate_limit') => {
   return async (c: Context<{ Bindings: Bindings; Variables: Variables }>, next: Next) => {
-    // 1. CF-Connecting-IP di-set oleh Cloudflare edge network dan terpercaya
-    // Fallback bertingkat ke x-real-ip dan x-forwarded-for jika diakses melalui reverse proxy lokal
-    const rawIp = c.req.header('CF-Connecting-IP') || 
-                  c.req.header('x-real-ip') || 
-                  c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+    // Gunakan getClientIp yang mendukung deteksi Cloudflare Worker cross-zone subrequest
+    const rawIp = getClientIp(c);
 
     // Mencegah denial-of-service global jika header IP tidak ada (Audit #4)
     // Jangan satukan seluruh user tanpa header IP ke dalam satu bucket 'unknown'

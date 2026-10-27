@@ -271,8 +271,49 @@ export function parseZipBuffer(buffer: ArrayBuffer): ZipArchiveInfo {
 
   // Jalankan pemindaian ancaman malware dan integritas pada seluruh entri arsip
   const threats = scanArchiveEntries(entries)
+
+  // DETEKSI PENYAMARAN MAGIC BYTES (CLOAKED EXECUTABLE) DI DALAM ZIP:
+  // Periksa header binary tiap entri stored (uncompressed) untuk mendeteksi file non-executable yang disamarkan
+  for (const entry of entries) {
+    if (entry.isDirectory || entry.uncompressedSize < 4) continue
+    const localOffset = entry.localHeaderOffset
+    if (localOffset + 30 > byteLength) continue
+    
+    const localSig = view.getUint32(localOffset, true)
+    if (localSig !== 0x04034b50) continue
+
+    const compMethod = view.getUint16(localOffset + 8, true)
+    const fileNameLen = view.getUint16(localOffset + 26, true)
+    const extraLen = view.getUint16(localOffset + 28, true)
+    const dataStart = localOffset + 30 + fileNameLen + extraLen
+
+    if (compMethod === 0 && dataStart + 4 <= byteLength) {
+      // Uncompressed (Stored) data — baca langsung 4 byte header aslinya
+      const b0 = bytes[dataStart]
+      const b1 = bytes[dataStart + 1]
+      const b2 = bytes[dataStart + 2]
+      const b3 = bytes[dataStart + 3]
+
+      const isMz = b0 === 0x4D && b1 === 0x5A // Windows PE Executable
+      const isElf = b0 === 0x7F && b1 === 0x45 && b2 === 0x4C && b3 === 0x46 // Linux ELF
+
+      const declaredExt = entry.extension.toLowerCase()
+      const isDeclaredApp = declaredExt === 'exe' || declaredExt === 'dll' || declaredExt === 'bin'
+
+      // Jika isi aslinya adalah MZ atau ELF tapi dinamai .pdf, .docx, .jpg, .dat, dll -> MUTLAK PENYAMARAN BERBAHAYA (CRITICAL)
+      if ((isMz || isElf) && !isDeclaredApp) {
+        threats.push({
+          type: 'cloaked_executable',
+          severity: 'critical',
+          fileName: entry.path,
+          description: `Penyamaran berkas executable terdeteksi! Berkas '${entry.name}' mengandung biner program ${isMz ? 'Windows (MZ)' : 'Linux (ELF)'} terselubung.`
+        })
+      }
+    }
+  }
+
   if (threats.length > 0) {
-    hasSuspiciousFiles = true
+    hasSuspiciousFiles = threats.some(t => t.severity === 'critical' || t.severity === 'high')
     // Beri penandaan rinci pada entri yang bermasalah
     threats.forEach(t => {
       const match = entries.find(e => e.path === t.fileName)

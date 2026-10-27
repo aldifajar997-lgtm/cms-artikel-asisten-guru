@@ -654,7 +654,7 @@ export const ProductCuration: React.FC<ProductCurationProps> = ({
                               {!inspectionData.malwareReport.isClean
                                 ? 'PERINGATAN: Muatan Berbahaya (Malware/Script) Terdeteksi!'
                                 : inspectionData.malwareReport.warnings?.length
-                                ? 'Perhatian: Berkas Mengandung Macro VBA Office (.xlsm / Formulasi Excel)'
+                                ? 'Perhatian: Berkas Memuat Aplikasi Edukasi (.exe/.apk) atau Macro VBA (.xlsm)'
                                 : 'Hasil Pindaian: Bebas Malware & Aman'}
                             </span>
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -664,14 +664,14 @@ export const ProductCuration: React.FC<ProductCurationProps> = ({
                                 ? 'bg-amber-200 text-amber-900'
                                 : 'bg-emerald-100 text-emerald-800'
                             }`}>
-                              {!inspectionData.malwareReport.isClean ? 'Berisiko Tinggi' : inspectionData.malwareReport.warnings?.length ? 'Macro Terdeteksi (Dapat Disetujui)' : 'Terverifikasi Bersih'}
+                              {!inspectionData.malwareReport.isClean ? 'Berisiko Tinggi' : inspectionData.malwareReport.warnings?.length ? 'Perlu Verifikasi (Dapat Disetujui)' : 'Terverifikasi Bersih'}
                             </span>
                           </div>
                           <p className="text-[11px] opacity-90 leading-relaxed">
                             {!inspectionData.malwareReport.isClean
-                              ? 'Ditemukan ekstensi cloaking, executable terlarang, atau exploit zip-slip. DILARANG MENYETUJUI produk ini.'
+                              ? 'Ditemukan ekstensi cloaking, penyamaran executable (bukan format aslinya), atau exploit zip-slip. DILARANG MENYETUJUI produk ini.'
                               : inspectionData.malwareReport.warnings?.length
-                              ? 'Ditemukan skrip Macro VBA (.xlsm / vbaProject.bin) untuk formulasi rapor atau otomasi administrasi guru. Pastikan seller menjelaskan fungsi macro ini di PANDUAN_PRODUK.txt. Produk ini TETAP DAPAT DISETUJUI jika fungsi formulasinya sah.'
+                              ? 'Ditemukan aplikasi edukasi (.exe/.apk) atau skrip Macro VBA (.xlsm). Pastikan fungsi aplikasi/formulasi ini sah dan sesuai deskripsi materi ajar. Produk ini TETAP DAPAT DISETUJUI oleh kurator.'
                               : `${inspectionData.malwareReport.stats?.totalChecked || 0} berkas telah dipindai (verifikasi magic bytes, macro Office VBA, zip-slip, dan cloaking).`}
                           </p>
                         </div>

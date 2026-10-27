@@ -18,7 +18,7 @@ import productsRoutes from './routes/products'
 import trendsRoutes from './routes/trends'
 import earningsRoutes from './routes/earnings'
 import legalRoutes, { renderLegalDocumentResponse } from './routes/legal'
-import { runMarketplaceR2GarbageCollector } from './utils/garbage-collector'
+import { runDailyGarbageCollector } from './utils/garbage-collector'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -169,12 +169,12 @@ export default {
       }
 
       if (shouldRunGc) {
-        console.log('Menjalankan cron job harian Garbage Collector R2 untuk Marketplace...')
+        console.log('Menjalankan cron job harian Garbage Collector R2 (Marketplace & Artikel) jam 3 pagi WIB...')
         try {
-          const report = await runMarketplaceR2GarbageCollector(env, event?.type === 'manual')
-          console.log(`[Scheduled GC] Selesai: ${report.deletedCount} file orphan dimusnahkan, ${report.activeCount} kunci aktif dilindungi.`)
+          const report = await runDailyGarbageCollector(env, event?.type === 'manual')
+          console.log(`[Scheduled GC] Selesai: Marketplace [Hapus: ${report.marketplace.deletedCount}, Lindungi: ${report.marketplace.activeCount}], Artikel [Hapus: ${report.articles.deletedCount}, Lindungi: ${report.articles.activeCount}]`)
         } catch (error) {
-          console.error('Terjadi kesalahan saat menjalankan Garbage Collector R2:', error)
+          console.error('Terjadi kesalahan saat menjalankan Garbage Collector R2 harian:', error)
         }
       }
       

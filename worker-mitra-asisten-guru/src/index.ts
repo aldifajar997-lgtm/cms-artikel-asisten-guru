@@ -31,6 +31,9 @@ export default {
       const clientIp = request.headers.get('CF-Connecting-IP');
       if (clientIp) {
         apiHeaders.set('CF-Connecting-IP', clientIp);
+        apiHeaders.set('X-Real-IP', clientIp);
+        const existingXff = request.headers.get('X-Forwarded-For');
+        apiHeaders.set('X-Forwarded-For', existingXff ? `${existingXff}, ${clientIp}` : clientIp);
       }
 
       const apiRequest = new Request(targetApiUrl.toString(), {
@@ -46,7 +49,8 @@ export default {
       // Modifikasi response header: Tulis ulang Cookie agar Same-Origin di mitra.asisten-guru.id
       const responseHeaders = new Headers(apiResponse.headers);
 
-      // Handle Set-Cookie domain rewrite
+      // Pastikan cookie host-only (tidak menyertakan atribut Domain= agar tidak bocor ke subdomain lain)
+      // Jika origin mengirimkan atribut Domain, hapus atribut Domain tersebut agar tetap Host-only di mitra.asisten-guru.id
       const rawCookies: string[] = [];
       if (typeof (apiResponse.headers as any).getSetCookie === 'function') {
         rawCookies.push(...(apiResponse.headers as any).getSetCookie());
@@ -58,9 +62,9 @@ export default {
       if (rawCookies.length > 0) {
         responseHeaders.delete('Set-Cookie');
         for (const cookieStr of rawCookies) {
-          // Ganti domain ke .asisten-guru.id agar cookie valid di sub-domain domain utama
-          const rewritten = cookieStr.replace(/Domain=[^;]+/gi, 'Domain=asisten-guru.id');
-          responseHeaders.append('Set-Cookie', rewritten);
+          // Hapus atribut Domain=... agar cookie host-only terikat langsung ke host asal request (mitra.asisten-guru.id)
+          const hostOnlyCookie = cookieStr.replace(/;\s*Domain=[^;]+/gi, '');
+          responseHeaders.append('Set-Cookie', hostOnlyCookie);
         }
       }
 
@@ -92,7 +96,12 @@ export default {
       legalHeaders.set('X-Forwarded-Host', url.host);
       legalHeaders.set('X-Forwarded-Proto', 'https');
       const clientIp = request.headers.get('CF-Connecting-IP');
-      if (clientIp) legalHeaders.set('CF-Connecting-IP', clientIp);
+      if (clientIp) {
+        legalHeaders.set('CF-Connecting-IP', clientIp);
+        legalHeaders.set('X-Real-IP', clientIp);
+        const existingXff = request.headers.get('X-Forwarded-For');
+        legalHeaders.set('X-Forwarded-For', existingXff ? `${existingXff}, ${clientIp}` : clientIp);
+      }
 
       const legalResponse = await fetch(targetLegalUrl.toString(), {
         method: request.method,

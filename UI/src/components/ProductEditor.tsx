@@ -149,7 +149,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
       if (response.data?.result?.[0]?.url) {
         const url = response.data.result[0].url;
-        const key = url.split('/').pop();
+        const key = url.replace(/^\/api\/media\//, '');
         if (key) setCoverImageKey(key);
       }
     } catch (err: any) {
@@ -180,7 +180,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
       if (response.data?.result?.[0]?.url) {
         const url = response.data.result[0].url;
-        const key = url.split('/').pop();
+        const key = url.replace(/^\/api\/media\//, '');
         if (key) {
           if (index === 1) setDetailImage1Key(key);
           else if (index === 2) setDetailImage2Key(key);

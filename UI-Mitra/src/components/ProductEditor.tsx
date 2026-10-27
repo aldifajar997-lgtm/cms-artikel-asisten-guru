@@ -207,7 +207,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
       const res = await api.post('/media', formData);
       const url = res.data?.result?.[0]?.url;
-      const key = url ? url.split('/').pop() : null;
+      const key = url ? url.replace(/^\/api\/media\//, '') : null;
       if (key) {
         setCoverImageKey(key);
         success('Foto cover produk berhasil diunggah.');
@@ -241,7 +241,7 @@ export const ProductEditor: React.FC<ProductEditorProps> = ({
 
       const res = await api.post('/media', formData);
       const url = res.data?.result?.[0]?.url;
-      const key = url ? url.split('/').pop() : null;
+      const key = url ? url.replace(/^\/api\/media\//, '') : null;
       if (key) {
         if (index === 1) setDetailImage1Key(key);
         if (index === 2) setDetailImage2Key(key);

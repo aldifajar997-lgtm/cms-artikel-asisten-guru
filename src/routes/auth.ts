@@ -12,6 +12,7 @@ import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 import { getSafeFrontendUrl } from '../utils/url'
 
 import { verifyHubJWT } from '../utils/hub-jwt'
+import { getClientIp } from '../utils/client-ip'
 import { SELLER_TERMS_MARKDOWN } from '../data/seller-terms'
 import { SELLER_PRIVACY_MARKDOWN } from '../data/seller-privacy'
 
@@ -30,12 +31,14 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
     throw new HTTPException(500, { message: 'Konfigurasi keamanan sistem belum lengkap. Hubungi administrator.' })
   }
 
+  const clientIp = getClientIp(c) || null
+
   const isValidTurnstile = await verifyTurnstile(
     turnstileToken,
     c.env.TURNSTILE_SECRET,
     'login',
     c.env.TURNSTILE_HOSTNAMES,
-    c.req.header('CF-Connecting-IP')
+    clientIp || undefined
   )
   if (!isValidTurnstile) {
     throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
@@ -74,7 +77,7 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
           'super_admin',
           hashedRefresh,
           c.req.header('User-Agent') || null,
-          c.req.header('CF-Connecting-IP') || null
+          clientIp
         ).run()
 
         setCookie(c, 'refresh_token', refreshToken, {
@@ -178,7 +181,7 @@ auth.post('/login', rateLimit(5, 60, 'login'), zValidator('json', loginSchema), 
     user.id,
     hashedRefresh,
     c.req.header('User-Agent') || null,
-    c.req.header('CF-Connecting-IP') || null
+    clientIp
   ))
 
   await c.env.DB.batch(stmts)
@@ -295,7 +298,7 @@ auth.post('/refresh', rateLimit(5, 60, 'refresh'), async (c) => {
     tokenRecord.user_id,
     hashedNewRefresh,
     c.req.header('User-Agent') || null,
-    c.req.header('CF-Connecting-IP') || null
+    getClientIp(c) || null
   ).run()
 
   setCookie(c, 'refresh_token', newRefreshToken, {
@@ -344,7 +347,7 @@ auth.post('/forgot-password', rateLimit(3, 3600, 'forgot_pw'), zValidator('json'
     c.env.TURNSTILE_SECRET,
     'forgot_password',
     c.env.TURNSTILE_HOSTNAMES,
-    c.req.header('CF-Connecting-IP')
+    getClientIp(c) || undefined
   )
   if (!isValidTurnstile) {
     throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
@@ -424,7 +427,7 @@ auth.post('/reset-password', rateLimit(5, 3600, 'reset_pw'), zValidator('json', 
     c.env.TURNSTILE_SECRET,
     'reset_password',
     c.env.TURNSTILE_HOSTNAMES,
-    c.req.header('CF-Connecting-IP')
+    getClientIp(c) || undefined
   )
   if (!isValidTurnstile) {
     throw new HTTPException(403, { message: 'Verifikasi keamanan gagal (CAPTCHA tidak valid).' })
@@ -771,7 +774,7 @@ auth.post('/sso/hub/callback', rateLimit(10, 60, 'sso_hub_callback'), zValidator
     user.id,
     hashedRefresh,
     c.req.header('User-Agent') || null,
-    c.req.header('CF-Connecting-IP') || null
+    getClientIp(c) || null
   ).run()
 
   setCookie(c, 'refresh_token', refreshToken, {
